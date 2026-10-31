@@ -49,6 +49,9 @@ public struct AlignmentParameters: Sendable {
     public var searchWindow = 0.3
     /// A fixed edge panel must be at least this share of the width to count as a sidebar.
     public var minSidebarFraction = 0.04
+    /// The rightmost sliver (this share of the width, 8 to 36 px) is left out of all matching,
+    /// because overlay scroll bars show their knob there, at a different height in every frame.
+    public var scrollerBandFraction = 0.025
 
     public init() {}
 }
@@ -74,8 +77,9 @@ public struct FrameAligner: Sendable {
     /// True when two frames are the same apart from small changing patches.
     public func isSame(_ a: PixelImage, _ b: PixelImage) -> Bool {
         guard a.width == b.width, a.height == b.height else { return false }
+        let cols = [0..<(a.width - scrollerBand(a.width))]
         var equal = 0
-        for y in 0..<a.height where a.rowEquals(y, b, y) { equal += 1 }
+        for y in 0..<a.height where a.rowEquals(y, b, y, columns: cols) { equal += 1 }
         return Double(equal) >= parameters.sameFraction * Double(a.height)
     }
 
@@ -87,9 +91,11 @@ public struct FrameAligner: Sendable {
         guard H > 0 else { return .noMovement }
 
         // 1. Rows identical at the same height.
+        let band = scrollerBand(W)
+        let rowCols = [0..<(W - band)]
         var equal = [Bool](repeating: false, count: H)
         var equalCount = 0
-        for y in 0..<H where a.rowEquals(y, b, y) { equal[y] = true; equalCount += 1 }
+        for y in 0..<H where a.rowEquals(y, b, y, columns: rowCols) { equal[y] = true; equalCount += 1 }
         if Double(equalCount) >= parameters.sameFraction * Double(H) { return .noMovement }
 
         var header = 0
@@ -110,6 +116,7 @@ public struct FrameAligner: Sendable {
                 }
             }
         }
+        for x in (W - band)..<W { fixed[x] = true }   // never match on the scroll bar sliver
         let moving = ranges(of: fixed, value: false)
         if moving.isEmpty { return .noMovement }
         let sidebars = findSidebars(fixed: fixed, frame: a, rows: header..<(H - footer))
@@ -183,6 +190,12 @@ public struct FrameAligner: Sendable {
     }
 
     // MARK: Helpers
+
+    /// Width of the right-edge band where an overlay scroll bar may appear.
+    public func scrollerBand(_ width: Int) -> Int {
+        guard width >= 160 else { return 0 }
+        return min(36, max(8, Int(Double(width) * parameters.scrollerBandFraction)))
+    }
 
     /// Fixed blocks touching the left or right edge that carry detail are sidebars; they get
     /// filled with their most common color below their first appearance. Flat fixed blocks

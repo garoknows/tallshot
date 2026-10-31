@@ -26,4 +26,23 @@ jobs:
           swift --version
 
       - name: Stitching engine tests and offscreen AppKit harness (TallshotCore)
-        run: swift test --package-path Packages/TallshotCore
+        run: swift test -c release --package-path Packages/TallshotCore
+
+      - name: Generate the Xcode project from project.yml
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build app (Release, ad hoc signed)
+        run: |
+          xcodebuild -project Tallshot.xcodeproj -scheme Tallshot \
+            -configuration Release -destination "generic/platform=macOS" \
+            -derivedDataPath build.nosync/dd build
+
+      - name: Privacy checks (no entitlements, no network, no temp files, no third-party code)
+        run: scripts/check-privacy.sh build.nosync/dd/Build/Products/Release/Tallshot.app
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

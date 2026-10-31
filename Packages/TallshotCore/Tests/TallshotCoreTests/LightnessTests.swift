@@ -14,7 +14,12 @@ struct LightnessTests {
         for _ in 0..<5 { result = FrameAligner().align(a, b, expected: 1440) }
         let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6 / 5
         #expect(result == .moved(PairLayout(header: 0, footer: 0, offset: 1437, score: 1)))
-        #expect(ms < 150, "one line-up took \(ms) ms")
+        #if DEBUG
+        let budget = 2_000.0   // unoptimized builds are ~10x slower; the app ships optimized
+        #else
+        let budget = 150.0
+        #endif
+        #expect(ms < budget, "one line-up took \(ms) ms")
     }
 
     /// The tall image grows by exactly the new rows; nothing else is kept per step.
