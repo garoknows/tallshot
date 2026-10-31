@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # the secret scan reads the commits being pushed
 
       - name: Show toolchain
         run: |
