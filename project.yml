@@ -1,0 +1,55 @@
+name: Tallshot
+options:
+  bundleIdPrefix: io.github.garoknows
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+packages:
+  TallshotCore:
+    path: Packages/TallshotCore
+
+targets:
+  Tallshot:
+    type: application
+    platform: macOS
+    sources:
+      - App/Sources
+      - path: App/Resources/AppIcon.icns
+        buildPhase: resources
+    dependencies:
+      - package: TallshotCore
+    settings:
+      base:
+        PRODUCT_NAME: Tallshot
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.garoknows.tallshot
+        CODE_SIGN_ENTITLEMENTS: App/Tallshot.entitlements
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+
+schemes:
+  Tallshot:
+    build:
+      targets:
+        Tallshot: all
+    test:
+      targets:
+        - package: TallshotCore/TallshotCoreTests
+        - package: TallshotCore/TallshotHarnessTests
+    archive:
+      config: Release

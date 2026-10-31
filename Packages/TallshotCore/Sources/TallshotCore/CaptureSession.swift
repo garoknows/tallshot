@@ -12,6 +12,13 @@ public protocol CaptureDriver: AnyObject {
     var isCancelled: Bool { get }
     /// A clock in seconds, for the time cap.
     var now: Double { get }
+    /// Called when a scroll moved the page the wrong way (for example a system setting flipped
+    /// it); every later scroll should go the other way.
+    func reverseScrollDirection()
+}
+
+public extension CaptureDriver {
+    func reverseScrollDirection() {}
 }
 
 public struct CaptureOptions: Sendable, Equatable {
@@ -78,6 +85,7 @@ public final class CaptureSession {
         var step = max(1, Int(Double(H) * options.firstStepFraction))
         var still = 0
         var recoveries = 0
+        var directionChecked = options.fromTop
 
         func finish(_ reason: StopReason) -> CaptureResult {
             if stitcher.image.height > options.maxHeight { stitcher.cap(height: options.maxHeight) }
@@ -103,6 +111,17 @@ public final class CaptureSession {
                 frame = try await settledFrame()
                 if driver.isCancelled { return finish(.cancelled) }
                 result = aligner.align(stitcher.last, frame, expected: step)
+            }
+
+            if !directionChecked {
+                directionChecked = true
+                if result == .noMovement || { if case .uncertain = result { return true } else { return false } }(),
+                   case .moved = aligner.align(frame, stitcher.last, expected: step) {
+                    // The page went up instead of down: flip, come back, carry on.
+                    driver.reverseScrollDirection()
+                    try await driver.scroll(pixels: step)
+                    continue
+                }
             }
 
             switch result {
@@ -160,11 +179,18 @@ public final class CaptureSession {
     func scrollToTop() async throws {
         var previous = try await settledFrame()
         let jump = -max(previous.height * 4, 2_000)
+        var checked = false
         for _ in 0..<40 {
             if driver.isCancelled { return }
-            try await driver.scroll(pixels: jump)
+            // The first move is a small probe, so its direction can be checked by lining it up.
+            try await driver.scroll(pixels: checked ? jump : -max(1, previous.height / 2))
             let current = try await settledFrame()
             if aligner.isSame(previous, current) { return }
+            if !checked {
+                checked = true
+                // Content moved up, so the page went down: scrolling is flipped.
+                if case .moved = aligner.align(previous, current) { driver.reverseScrollDirection() }
+            }
             previous = current
         }
     }

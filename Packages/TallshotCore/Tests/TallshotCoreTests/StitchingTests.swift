@@ -66,6 +66,20 @@ struct PixelExactTests {
         #expect(report(r, w).first == 0)
     }
 
+    @Test func flippedScrollDirectionIsDetected() async throws {
+        let w = SimulatedWindow(pageHeight: 3000, start: 900, header: 40)
+        w.invertScroll = true
+        let r = try await capture(w)
+        #expect(mismatch(r.image, w.expected(from: 900)) == nil)
+    }
+
+    @Test func flippedScrollDirectionFromTop() async throws {
+        let w = SimulatedWindow(pageHeight: 3000, start: 900)
+        w.invertScroll = true
+        let r = try await capture(w) { $0.fromTop = true }
+        #expect(mismatch(r.image, w.expected(from: 0)) == nil)
+    }
+
     @Test func smoothScrollingSettlesBeforeCapture() async throws {
         let w = SimulatedWindow(pageHeight: 2400, header: 40, footer: 40)
         w.smoothFrames = 4
@@ -98,6 +112,16 @@ struct RobustnessTests {
     @Test func blinkingCursorInContentDoesNotBreakLineUp() async throws {
         let w = SimulatedWindow(pageHeight: 2600, footer: 50)
         w.contentPatch = true
+        let r = try await capture(w)
+        #expect(r.reason == .bottom)
+        #expect(r.image.height == w.expected(from: 0).height)
+        #expect(report(r, w).isClean)
+    }
+
+    @Test func overlayScrollBarDoesNotBreakLineUp() async throws {
+        let w = SimulatedWindow(pageHeight: 2600, header: 40, footer: 40)
+        w.overlayScroller = true
+        w.jitter = true
         let r = try await capture(w)
         #expect(r.reason == .bottom)
         #expect(r.image.height == w.expected(from: 0).height)

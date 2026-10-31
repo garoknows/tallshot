@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Only for the experiment `TALLSHOT_SANDBOX=1 scripts/build-direct.sh`: the same app with
+	     the App Sandbox on and no network entitlement, to check whether Accessibility and
+	     scroll events work sandboxed (run the self-test). Releases never use this file. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+</dict>
+</plist>

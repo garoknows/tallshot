@@ -18,6 +18,8 @@ final class SimulatedWindow: CaptureDriver {
 
     // Behaviours
     var jitter = false
+    var invertScroll = false
+    var overlayScroller = false
     var smoothFrames = 0
     var fixedPatch = false
     var contentPatch = false
@@ -108,6 +110,12 @@ final class SimulatedWindow: CaptureDriver {
             let c = TestPage.rgba(UInt8(captures * 37 % 256), UInt8(captures * 91 % 256), 200)
             for y in (height / 2)..<(height / 2 + 10) { for x in (width - 60)..<(width - 50) { img[x, y] = c } }
         }
+        if overlayScroller {
+            // A macOS overlay scroll bar: a grey knob at the right edge, placed by scroll position.
+            let knobH = max(20, middle * middle / max(page.height, 1))
+            let top = h + (middle - knobH) * p / max(1, maxPos)
+            for y in top..<min(h + middle, top + knobH) { for x in (width - 8)..<(width - 3) { img[x, y] = TestPage.rgba(140, 140, 140) } }
+        }
         if contentPatch && captures % 2 == 0 {
             // A blinking cursor that scrolls with the content (page rows 300..<316).
             for r in 0..<middle where (300..<316).contains(p + r) { for x in (s + 200)..<(s + 203) { img[x, h + r] = TestPage.black } }
@@ -122,7 +130,7 @@ final class SimulatedWindow: CaptureDriver {
             pageSeed &+= 1000
             page = TestPage.make(width: page.width, height: page.height, seed: pageSeed, firstIndex: 100_000)
         }
-        var target = pos + pixels
+        var target = pos + (invertScroll ? -pixels : pixels)
         if jitter && pixels > 0 {
             let j = Int(rng.next() % 3) + 1
             target += rng.next() % 2 == 0 ? j : -j
@@ -137,6 +145,8 @@ final class SimulatedWindow: CaptureDriver {
     }
 
     func pause(milliseconds: Int) async { clock += Double(milliseconds) / 1000 }
+
+    func reverseScrollDirection() { invertScroll.toggle() }
 
     private(set) var cancelled = false
     var isCancelled: Bool { cancelled }

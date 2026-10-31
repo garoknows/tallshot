@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hardened runtime, no App Sandbox: the sandbox gets in the way of the Accessibility calls
+	     that find the scrolling area, the scroll events that move it, and saving to the Desktop.
+	     No entitlements at all: no network, camera, microphone, contacts or file exceptions.
+	     scripts/check-privacy.sh and CI prove there is no networking code. Keep this file empty. -->
+</dict>
+</plist>
