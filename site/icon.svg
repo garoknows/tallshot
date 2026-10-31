@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#F6F4EF"/>
+  <!-- tall paper sheet rising out of the screen -->
+  <rect x="21" y="7" width="22" height="40" rx="2.5" fill="#FFFFFF" stroke="#15171C" stroke-width="2.4"/>
+  <g stroke="#FFC83D" stroke-width="2.2" stroke-linecap="round">
+    <line x1="24" y1="12" x2="28" y2="12"/><line x1="24" y1="17" x2="26.5" y2="17"/>
+    <line x1="24" y1="22" x2="28" y2="22"/><line x1="24" y1="27" x2="26.5" y2="27"/>
+    <line x1="24" y1="32" x2="28" y2="32"/>
+  </g>
+  <g stroke="#15171C" stroke-opacity=".22" stroke-width="2" stroke-linecap="round">
+    <line x1="31" y1="13" x2="39" y2="13"/><line x1="31" y1="19" x2="37" y2="19"/><line x1="31" y1="25" x2="39" y2="25"/>
+  </g>
+  <!-- short screen frame -->
+  <path d="M9 34h12M43 34h12v17a4 4 0 0 1-4 4H13a4 4 0 0 1-4-4V34" fill="none" stroke="#15171C" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="21" y="34" width="22" height="13" fill="#2F6BFF" opacity=".14"/>
+  <path d="M28 41l4 4 4-4" fill="none" stroke="#2F6BFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
