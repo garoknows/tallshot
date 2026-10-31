@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tallshot: scrolling screenshots on Mac, one hotkey</title>
+<meta name="description" content="Tallshot is a free, open-source Mac menu bar app that turns any scrolling window into one tall screenshot with a single hotkey. No box to draw, no editor. No network, no account.">
+<meta property="og:title" content="tallshot">
+<meta property="og:description" content="One hotkey. The whole page. Scrolling screenshots on Mac without drawing a box.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --night: #15171C;
+    --lift: #2F6BFF;
+    --ruler: #FFC83D;
+    --paper: #F6F4EF;
+    --ink: #15171C;
+    --bg: #F6F4EF;
+    --card: #FFFFFF;
+    --muted: #5A5F6B;
+    --line: #E3DFD5;
+    --row: #ECE9E1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #F2F0EA; --bg: #15171C; --card: #1E2129; --muted: #A2A7B3; --line: #2E323D; --row: #2A2E38;
+    }
+  }
+  :root[data-theme="dark"] { --ink: #F2F0EA; --bg: #15171C; --card: #1E2129; --muted: #A2A7B3; --line: #2E323D; --row: #2A2E38; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 16px; }
+  .rounded { font-family: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; gap: 12px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+  .brand img { width: 30px; height: 30px; }
+  .wordmark { font-weight: 600; font-size: 23px; letter-spacing: -0.01em; }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 16px; font-size: 15px; }
+  nav a:hover { color: var(--ink); }
+  .note { display: inline-block; font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; margin-bottom: 18px; }
+  .hero { display: grid; grid-template-columns: 1.15fr 1fr; gap: 40px; align-items: center; padding: 40px 0 24px; }
+  h1 { font-weight: 600; font-size: clamp(36px, 6.4vw, 60px); line-height: 1.04; letter-spacing: -0.025em; margin: 0 0 18px; }
+  h1 .hl { background: linear-gradient(transparent 62%, var(--ruler) 62%, var(--ruler) 92%, transparent 92%); }
+  .lede { font-size: 19px; color: var(--muted); margin: 0 0 26px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn { display: inline-block; text-decoration: none; font-weight: 600; border-radius: 12px; padding: 12px 20px; font-size: 16px; }
+  .btn.primary { background: var(--lift); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.07); }
+  .btn.ghost { color: var(--ink); border: 1.5px solid var(--line); }
+  .small { font-size: 14px; color: var(--muted); }
+  kbd { font: 600 14px ui-rounded, -apple-system, sans-serif; background: var(--card); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; }
+
+  /* Demo: a window scrolls while a tall sheet grows beside it. */
+  .demo { position: relative; height: 380px; }
+  .win { position: absolute; left: 0; top: 40px; width: 62%; height: 230px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 14px 40px rgba(21,23,28,.10); }
+  .win .bar { height: 26px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px; padding: 0 10px; background: var(--card); position: relative; z-index: 2; }
+  .win .bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); display: block; }
+  .win .view { position: absolute; top: 27px; left: 0; right: 0; bottom: 0; overflow: hidden; outline: 2px solid var(--lift); outline-offset: -3px; border-radius: 0 0 11px 11px; animation: flash 6s infinite; }
+  .win .content { animation: scroll 6s infinite; }
+  .rowx { height: 22px; margin: 8px 12px; border-radius: 5px; background: var(--row); display: flex; align-items: center; padding-left: 8px; font: 600 11px ui-rounded, -apple-system, sans-serif; color: var(--muted); }
+  .rowx.b { width: 70%; } .rowx.c { width: 85%; }
+  .sheet { position: absolute; right: 0; top: 0; width: 32%; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 40px rgba(21,23,28,.12); overflow: hidden; animation: grow 6s infinite; }
+  .sheet::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 7px; background: repeating-linear-gradient(to bottom, var(--ruler) 0 2px, transparent 2px 12px); }
+  .sheet .rowx { height: 12px; margin: 6px 8px 6px 14px; font-size: 0; }
+  .badge { position: absolute; right: 6px; bottom: 6px; background: var(--ruler); color: #15171C; font: 700 11px ui-rounded, -apple-system, sans-serif; border-radius: 6px; padding: 2px 6px; }
+  @keyframes scroll { 0%,12% { transform: translateY(0); } 80%,100% { transform: translateY(-520px); } }
+  @keyframes grow { 0%,12% { height: 120px; } 80%,100% { height: 375px; } }
+  @keyframes flash { 0% { outline-color: transparent; } 4% { outline-color: var(--lift); } 10%,100% { outline-color: transparent; } }
+  @media (prefers-reduced-motion: reduce) { .win .content, .sheet, .win .view { animation: none; } .sheet { height: 375px; } }
+
+  section { padding: 34px 0; border-top: 1px solid var(--line); }
+  h2 { font-weight: 600; font-size: 28px; letter-spacing: -0.015em; margin: 0 0 18px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .num { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--lift); color: #fff; font: 700 14px ui-rounded, -apple-system, sans-serif; margin-bottom: 10px; }
+  ul.promises { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
+  ul.promises li { padding-left: 26px; position: relative; }
+  ul.promises li::before { content: ""; position: absolute; left: 0; top: 7px; width: 14px; height: 10px; border-left: 3px solid var(--lift); border-bottom: 3px solid var(--lift); transform: rotate(-45deg); }
+  code { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+  footer { padding: 30px 0 50px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+  footer a { color: var(--muted); }
+  a { color: var(--lift); }
+  @media (max-width: 760px) {
+    .hero { grid-template-columns: 1fr; gap: 10px; padding-top: 16px; }
+    .steps, ul.promises { grid-template-columns: 1fr; }
+    nav a:not(.gh) { display: none; }
+    .demo { height: 320px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="./"><img src="icon.svg" alt=""><span class="wordmark rounded">tallshot</span></a>
+    <nav><a href="#how">How it works</a><a href="#privacy">Privacy</a><a class="gh" href="https://github.com/garoknows/tallshot">GitHub</a></nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <span class="note">Early preview, being tested by its author</span>
+      <h1 class="rounded">One hotkey.<br><span class="hl">The whole page.</span></h1>
+      <p class="lede">Tallshot turns any scrolling window into one tall screenshot. Point at it, press the keys, and it scrolls to the bottom, stitches the pieces, saves a PNG and copies it to your clipboard. No box to draw. No editor to close.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/garoknows/tallshot/releases">Download for Mac</a>
+        <a class="btn ghost" href="https://github.com/garoknows/tallshot">View source</a>
+      </div>
+      <p class="small">Free and open source (MIT). macOS 14 Sonoma or later. Default hotkey <kbd>⌃⌥⇧⌘T</kbd>.</p>
+    </div>
+    <div class="demo" aria-label="Animation: a window scrolls while a tall screenshot grows beside it">
+      <div class="win">
+        <div class="bar"><i></i><i></i><i></i></div>
+        <div class="view"><div class="content" id="content"></div></div>
+      </div>
+      <div class="sheet" id="sheet"><span class="badge">8,412 px</span></div>
+    </div>
+  </div>
+
+  <section id="how">
+    <h2 class="rounded">How it works</h2>
+    <div class="steps">
+      <div class="card"><span class="num">1</span><h3>Point</h3><p>Put the pointer over what you want: a web page, a chat thread, a sidebar, a Finder list. Tallshot finds the scrolling area under it and flashes a thin outline around it.</p></div>
+      <div class="card"><span class="num">2</span><h3>Press</h3><p>It scrolls from where you are to the bottom, waiting for each step to settle. Sticky headers and chat input boxes show up once, not on every strip.</p></div>
+      <div class="card"><span class="num">3</span><h3>Paste</h3><p>The PNG lands on your Desktop and on your clipboard. A small toast shows the height. Paste it straight into Claude, Slack or a doc.</p></div>
+    </div>
+    <p class="small" style="margin-top:16px">Press Esc, or touch the mouse or keyboard, to stop early and keep what was captured. Want the whole thing? Use “Capture from top” in the menu, or <code>tallshot://capture?from=top</code> from Raycast, Shortcuts or a script.</p>
+  </section>
+
+  <section id="privacy">
+    <h2 class="rounded">Private by design</h2>
+    <p class="small" style="margin-top:-8px">Tallshot needs Screen Recording and Accessibility to see and scroll the window. These rules keep that safe, and each one is checked by a test or by macOS.</p>
+    <ul class="promises">
+      <li>No network code at all, and no third-party packages.</li>
+      <li>Captures go only to your clipboard and the folder you pick.</li>
+      <li>Frames stay in memory, never in temp files, caches or logs.</li>
+      <li>The screen is read only between the hotkey and the end of that capture.</li>
+      <li>Windows macOS marks as private stay private.</li>
+      <li>No analytics, no crash reporting, no account.</li>
+    </ul>
+  </section>
+
+  <footer>
+    tallshot is free and open source under the MIT License. Made by <a href="https://github.com/garoknows">garoknows</a>.
+  </footer>
+</div>
+<script>
+  // Fill the demo with numbered rows (purely decorative).
+  const c = document.getElementById('content'), s = document.getElementById('sheet');
+  const cls = ['', 'b', 'c'];
+  for (let i = 1; i <= 34; i++) {
+    const r = document.createElement('div'); r.className = 'rowx ' + cls[i % 3]; r.textContent = 'Row ' + i; c.appendChild(r);
+  }
+  for (let i = 1; i <= 24; i++) {
+    const r = document.createElement('div'); r.className = 'rowx ' + cls[i % 3]; s.insertBefore(r, s.lastElementChild);
+  }
+</script>
+</body>
+</html>
