@@ -12,9 +12,11 @@ COMMON=(-swift-version 6 -sdk "$SDK" -module-cache-path "$B/modcache" -target "$
         -plugin-path "$DEV/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins" -plugin-path "$TC/usr/lib/swift/host/plugins")
 "$SWIFTC" "${COMMON[@]}" -parse-as-library -emit-library -static -emit-module -module-name TallshotCore \
   -emit-module-path "$B/TallshotCore.swiftmodule" "$ROOT"/Packages/TallshotCore/Sources/TallshotCore/*.swift -o "$B/libTallshotCore.a"
+"$SWIFTC" "${COMMON[@]}" -parse-as-library -emit-library -static -emit-module -module-name TallshotExport -I "$B" \
+  -emit-module-path "$B/TallshotExport.swiftmodule" "$ROOT"/Packages/TallshotCore/Sources/TallshotExport/*.swift -o "$B/libTallshotExport.a"
 SOURCES=$(ls "$ROOT"/App/Sources/*.swift | grep -v TallshotApp.swift)
 # shellcheck disable=SC2086
-"$SWIFTC" "${COMMON[@]}" -parse-as-library -I "$B" -L "$B" -lTallshotCore -module-name DocRenderer \
+"$SWIFTC" "${COMMON[@]}" -parse-as-library -I "$B" -L "$B" -lTallshotCore -lTallshotExport -module-name DocRenderer \
   $SOURCES "$ROOT/tools/DocRenderer/main.swift" -o "$B/DocRenderer"
 rm -rf "$B/AppIcon.iconset"
 mkdir -p "$ROOT/docs/images" "$ROOT/App/Resources"

@@ -12,17 +12,18 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 
 ## How it works
 
-1. **Point** the mouse at what you want: a web page, a chat thread, a sidebar, a Finder list.
-2. **Press** <kbd>⌃⌥⇧⌘T</kbd> (Control, Option, Shift, Command and T). A thin blue outline flashes around the area Tallshot picked.
-3. **Paste.** Tallshot scrolls to the bottom, waits for each step to settle, and stitches the strips. The PNG lands on your Desktop and on your clipboard, and a small toast shows the height. Click the toast to see the file in Finder.
+1. **Point** the mouse at what you want: a web page, a chat thread, one pane of a split window, a Finder list. Tallshot captures just that pane: no app sidebar, no browser toolbar.
+2. **Press** <kbd>⌃⌥⇧⌘T</kbd> (Control, Option, Shift, Command and T). A thin blue outline flashes around exactly the pane Tallshot picked, before anything scrolls. If it's the wrong one, press Esc.
+3. **Paste.** Tallshot scrolls to the bottom, waits for each step to settle, and stitches the strips. The PNG lands on your Desktop and on your clipboard, and a small preview pop-up shows the height. Click the pop-up to open the file.
 
-<p align="center"><img src="docs/images/toast.png" width="328" alt="Toast: Saved and copied. 8,412 px."></p>
+<p align="center"><img src="docs/images/popup-exports.png" width="328" alt="Preview pop-up: Saved and copied. Also saved PDF, Word and Markdown. 8,412 px."></p>
 
 - **Sticky headers and chat input boxes appear once**, not on every strip. Tallshot spots the parts that never move and leaves them out of the line-up.
 - **It starts where you are.** To get the whole thing, use **Capture from Top** in the menu (you can give it its own hotkey in Settings).
 - **Stop any time:** press Esc, or touch the mouse or keyboard. Tallshot keeps what it captured so far.
 - **Very long pages** stop at 30,000 pixels or 60 seconds (both adjustable).
 - **Browsers and chat apps.** In Chrome, Arc, Safari and Electron apps Tallshot finds the pane you point at, leaves out the browser's toolbar and the app's sidebar, and handles the floating buttons and message box of chat apps. **Capture from Top** waits for older messages to load, so you can export a whole chat.
+- **Also save as PDF, Word and Markdown.** The PDF is the tall image on Letter or A4 pages, cut between lines of text, and searchable. Word and Markdown get the words with their headings, nested bullets, links and code blocks: read from the app when it shares them, otherwise recognized from the image on your Mac. You can also copy the text as Markdown instead of the image.
 - **It measures every step.** If an app scrolls further than asked, Tallshot asks for less and walks back until the pictures overlap again. If a capture stops early, the pop-up says so and why.
 
 <p align="center"><img src="docs/images/menu.png" width="420" alt="The Tallshot menu: Capture Now, Capture from Top, Settings, Run Self-Test, Quit"></p>
@@ -62,7 +63,8 @@ To test a browser, open the [chat test page](https://garoknows.github.io/tallsho
 Tallshot can see the screen and send scroll events, so these rules matter. Each one is checked by a test or by macOS, not just promised. More detail in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 - **No network.** There is no networking code and no third-party code in the app. A check in CI scans the source and the built app on every push.
-- **Captures go only where you send them:** your clipboard and the folder you chose. Frames are held in memory during a capture and never written to temp files, caches or logs.
+- **Captures go only where you send them:** your clipboard and the folder you chose. Frames are held in memory during a capture and never written to temp files, caches or logs. PDF, Word and Markdown are built in memory and written straight into that folder.
+- **Text recognition happens on your Mac** (Apple's Vision framework). No text or image is sent anywhere.
 - **Captures only when you ask.** Nothing runs in the background. The screen is read only between the hotkey and the end of that capture.
 - **Protected windows stay protected.** Windows macOS marks as private are left as macOS returns them.
 - **No analytics, no crash reporting, no account.** Settings are the only thing stored.

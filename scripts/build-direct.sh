@@ -10,7 +10,7 @@
 #        ARCHS              (default "arm64 x86_64")
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:-0.1.1}"
+VERSION="${1:-0.2.0}"
 B="${TALLSHOT_BUILD_DIR:-$HOME/Library/Caches/Tallshot-build}/direct-app"
 IDENTITY="${SIGN_IDENTITY:--}"
 APP="$B/Tallshot.app"
@@ -30,7 +30,9 @@ for ARCH in $ARCHS; do
   COMMON=(-swift-version 6 -O -whole-module-optimization -sdk "$SDK" -target "$ARCH-apple-macos14.0" -module-cache-path "$B/modcache" -plugin-path "$DEV/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins" -plugin-path "$TC/usr/lib/swift/host/plugins")
   "$SWIFTC" "${COMMON[@]}" -parse-as-library -emit-library -static -emit-module -module-name TallshotCore \
     -emit-module-path "$O/TallshotCore.swiftmodule" "$ROOT"/Packages/TallshotCore/Sources/TallshotCore/*.swift -o "$O/libTallshotCore.a"
-  "$SWIFTC" "${COMMON[@]}" -parse-as-library -I "$O" -L "$O" -lTallshotCore -module-name Tallshot \
+  "$SWIFTC" "${COMMON[@]}" -parse-as-library -emit-library -static -emit-module -module-name TallshotExport -I "$O" \
+    -emit-module-path "$O/TallshotExport.swiftmodule" "$ROOT"/Packages/TallshotCore/Sources/TallshotExport/*.swift -o "$O/libTallshotExport.a"
+  "$SWIFTC" "${COMMON[@]}" -parse-as-library -I "$O" -L "$O" -lTallshotCore -lTallshotExport -module-name Tallshot \
     "$ROOT"/App/Sources/*.swift -o "$O/Tallshot"
   BINS+=("$O/Tallshot")
 done

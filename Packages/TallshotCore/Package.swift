@@ -9,9 +9,13 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "TallshotCore", targets: ["TallshotCore"]),
+        // Exports (PDF, Word, Markdown) and on-device text recognition. Apple frameworks only.
+        .library(name: "TallshotExport", targets: ["TallshotExport"]),
     ],
     targets: [
         .target(name: "TallshotCore"),
+        .target(name: "TallshotExport", dependencies: ["TallshotCore"]),
+        .testTarget(name: "TallshotExportTests", dependencies: ["TallshotCore", "TallshotExport"]),
         .testTarget(name: "TallshotCoreTests", dependencies: ["TallshotCore"]),
         // The offscreen AppKit harness: a real NSScrollView, scrolled in code and rendered offscreen.
         .testTarget(name: "TallshotHarnessTests", dependencies: ["TallshotCore"]),

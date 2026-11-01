@@ -2,19 +2,16 @@
 
 Tallshot turns any scrolling window into one tall screenshot with a single hotkey: point at it, press **⌃⌥⇧⌘T**, and it scrolls to the bottom, stitches the strips, saves a PNG to your Desktop and copies it to your clipboard. No box to draw, no editor.
 
-**New in 0.1.1: browsers and chat apps**
+**New in 0.2.0**
 
-- **No more overshoot.** Some apps treated Tallshot's scrolling like a trackpad flick and flew several screens at once, so nothing lined up and only one screen was saved. Tallshot now scrolls without momentum, measures every step, asks for less when an app goes too far, starts with small steps in browsers, and if a step still overshoots it walks back until the pictures overlap again.
-- Exact scrolling through the scroll bar where an app offers it.
-- The hotkey's keys no longer leak into the scroll (Shift turned it sideways and Control zoomed in some browsers).
-- Chrome, Arc, Edge, Brave, Dia and Electron apps: Tallshot switches on their accessibility description so it finds the scrolling pane, and otherwise uses the page without the browser's tabs and toolbar.
-- Captures of a whole window are cropped to the part that scrolled, so an app's sidebar is left out.
-- Chat apps' floating buttons, fades and message boxes no longer break the line-up, and appear once at the bottom.
-- **Capture from Top** waits for older messages to load, for exporting a whole chat.
-- If a capture stops early, the pop-up says so and why. If an area doesn't scroll at all, it says "This area didn't scroll".
-- Optional: **Keep a diagnostic report when a capture stops early** (Settings → Capture, off by default).
-- Test page for browsers: https://garoknows.github.io/tallshot/test/chat/ (every row is barcoded, and the pop-up reports whether the capture came out right). The self-test also runs when you point at it and press the hotkey.
+- **Just the pane you point at.** New setting, Capture: *Pane under the pointer* (default) or *Whole window*. Pane mode never includes an app's sidebar, a browser's toolbar or the other half of a split view. The outline that flashes first shows exactly what will be captured; press Esc if it's wrong.
+- **Also save as PDF, Word and Markdown** (Settings → Output). The PDF splits the tall image into Letter or A4 pages, cut between lines of text, with a searchable text layer. Word and Markdown get the words with headings, nested bullets, links and code blocks: read from the app's accessibility tree when it shares them, otherwise recognized from the image on your Mac. Each export says which. Option: include the image in the Word file.
+- **Copy as text:** put the Markdown on the clipboard instead of the image.
+- **Settings in three tabs:** General, Output, Capture. "Show a toast" is now **Show a preview pop-up**, and clicking it opens the file.
+- **Hotkey warnings:** if macOS refuses a hotkey, it isn't kept, and the field says so; if macOS or a running app such as Raycast is known to use it, a warning says which.
 
-**Privacy:** no network code, no third-party code, no analytics. Frames stay in memory; only the finished PNG is saved, where you chose. Needs macOS 14 Sonoma or later.
+**Also in 0.1.1:** scrolling without overshoot in browsers and chat apps, a test page at https://garoknows.github.io/tallshot/test/chat/, and an optional diagnostic report.
 
-**Install:** open the .dmg, drag Tallshot to Applications, open it, and follow the two setup steps. If you had 0.1.0, macOS may ask for Screen Recording and Accessibility again.
+**Privacy:** no network code, no third-party code, no analytics. Text recognition runs on your Mac. Frames stay in memory; only the files you chose are saved, in the folder you chose. Needs macOS 14 Sonoma or later.
+
+**Install:** open the .dmg, drag Tallshot to Applications, open it, and follow the two setup steps. If you had an earlier version, macOS may ask for Screen Recording and Accessibility again.

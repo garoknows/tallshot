@@ -16,18 +16,22 @@ ENT="$ROOT/App/Tallshot.entitlements"
 KEYS=$(plutil -convert json -o - "$ENT" 2>/dev/null)
 [ "$KEYS" = "{}" ] && pass "No entitlements at all (no network, files, camera, microphone, contacts)" || bad "Entitlements present: $KEYS"
 
-echo "Source code"
+echo "Source code (app, engine and exports)"
 NET='URLSession|NSURLConnection|URLRequest|import Network|CFSocket|NWConnection|NWPathMonitor|NWListener|WebSocket|socket\(|CFStream|NSStream|getaddrinfo|WKWebView|import WebKit'
 if grep -rn -E "$NET" "${SRC[@]}" >/dev/null; then bad "Network code found:"; grep -rn -E "$NET" "${SRC[@]}"
 else pass "No network code"; fi
 
-# The only file Tallshot writes is the finished PNG, in Delivery.swift, to the folder the user chose.
-# The one exception is DiagnosticsWriter.swift: a report folder next to the capture, written only
-# when the user turned on "Keep a diagnostic report" and a capture stopped early.
-WRITES='\.write\(to|FileManager\.default\.create|createFile|FileHandle|fopen|NSKeyedArchiver|CGImageDestinationCreateWithURL'
-OTHER=$(grep -rn -E "$WRITES" "${SRC[@]}" | grep -v 'App/Sources/Delivery.swift:.*png.write(to: url, options: .atomic)' | grep -v 'App/Sources/DiagnosticsWriter.swift:')
-if [ -n "$OTHER" ]; then bad "File writes outside the PNG save and the opt-in diagnostics:"; echo "$OTHER"
-else pass "Only file writes: the finished PNG, and the opt-in diagnostic report, both in the chosen folder"; fi
+# Tallshot writes files in exactly two places, both into the folder the user chose:
+#  - ExportFiles.swift: the finished capture (PNG, and PDF / Word / Markdown if those are on),
+#    written straight into the folder (no temp copy elsewhere, never overwriting).
+#  - DiagnosticsWriter.swift: a report folder next to the capture, only when the user turned on
+#    "Keep a diagnostic report" and a capture stopped early.
+WRITES='\.write\(to|FileManager\.default\.create|createFile|FileHandle|fopen|NSKeyedArchiver|CGImageDestinationCreateWithURL|CGPDFContextCreateWithURL|CGDataConsumer\(url'
+OTHER=$(grep -rn -E "$WRITES" "${SRC[@]}" | grep -v 'Sources/TallshotExport/ExportFiles.swift:.*write(to: url(f.ext), options: .withoutOverwriting)' | grep -v 'App/Sources/DiagnosticsWriter.swift:')
+if [ -n "$OTHER" ]; then bad "File writes outside the export writer and the opt-in diagnostics:"; echo "$OTHER"
+else pass "Only file writes: the capture's files, and the opt-in diagnostic report, both in the chosen folder"; fi
+if grep -rn -E 'options: \.atomic' "${SRC[@]}" >/dev/null; then bad "Atomic writes stage a temp copy outside the chosen folder:"; grep -rn 'options: .atomic' "${SRC[@]}"
+else pass "No atomic writes (nothing staged in a temp folder first)"; fi
 if grep -n 'DiagnosticsWriter.write' "$ROOT/App/Sources/AppModel.swift" | grep -q . && \
    grep -B3 'DiagnosticsWriter.write' "$ROOT/App/Sources/AppModel.swift" | grep -q 'DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics'; then
   pass "Diagnostic report written only when its setting is on (and it is off by default)"

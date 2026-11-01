@@ -36,7 +36,10 @@ Each step turns green by itself. Then click **Run Self-Test**: Tallshot captures
 - Point at any scrolling area and press **⌃⌥⇧⌘T**.
 - **Capture from Top** in the menu scrolls to the top first.
 - Esc, a click, a key or moving the mouse stops it and keeps what was captured.
-- Settings (menu → Settings…) has the hotkeys, the save folder, copy/save/toast toggles, scroll speed, the height and time limits, and Open at login.
+- Settings (menu → Settings…):
+  - **General:** the hotkeys (with a warning under the field if macOS or another app already uses one), Capture (pane under the pointer, or the whole window), Open at login.
+  - **Output:** the save folder; Also save as PNG, PDF, Word (.docx), Markdown (.md); Copy as image or text; PDF page size; the preview pop-up; the shutter sound.
+  - **Capture:** scroll speed, the height and time limits, and the optional diagnostic report.
 
 ## Building from source
 

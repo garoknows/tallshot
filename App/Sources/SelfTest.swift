@@ -155,7 +155,8 @@ final class SelfTest {
         do {
             var options = Settings.shared.captureOptions(fromTop: false)
             options.keepDiagnostics = false
-            let (result, capturer) = try await AppModel.run(target: target, options: options)
+            let run = try await AppModel.run(target: target, options: options)
+            let (result, capturer) = (run.result, run.capturer)
             let seconds = Date().timeIntervalSince(start)
             state.phase = verdict(result, scale: capturer.scale, target: target, seconds: seconds)
             if viaHotkey {

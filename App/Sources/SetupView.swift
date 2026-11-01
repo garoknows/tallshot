@@ -88,7 +88,7 @@ struct SetupView: View {
                       picture: AnnotatedSettings(pane: .accessibility))
             HStack(alignment: .center) {
                 Text(screen && ax
-                     ? "All set. Point at any window and press \(Settings.shared.captureHotkey?.display ?? "the hotkey")."
+                     ? "All set. Point at any pane and press \(Settings.shared.captureHotkey?.display ?? "the hotkey"). Only that pane is captured. Settings → Output can also save a PDF, Word file or Markdown."
                      : "This window updates by itself. If a switch is on but the step stays grey, quit and reopen Tallshot (macOS asks for that after Screen Recording).")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

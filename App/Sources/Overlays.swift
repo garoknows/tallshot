@@ -18,12 +18,13 @@ func overlayWindow(frame: NSRect, clickThrough: Bool) -> NSPanel {
     return w
 }
 
-/// A 2-point outline in the accent color around the picked area for about 300 ms, fading out.
+/// A 2-point outline in the accent color around exactly the picked area, fading out. It shows
+/// before anything scrolls, so a wrong pick can be cancelled with Esc.
 @MainActor
 enum RegionFlash {
     private static var current: NSPanel?
 
-    static func show(_ region: CGRect) {
+    static func show(_ region: CGRect, seconds: Double = 0.3) {
         current?.orderOut(nil)
         let frame = TargetFinder.toAppKit(region).insetBy(dx: -3, dy: -3)
         let w = overlayWindow(frame: frame, clickThrough: true)
@@ -33,7 +34,7 @@ enum RegionFlash {
         w.alphaValue = 1
         w.orderFrontRegardless()
         current = w
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.12, seconds - 0.18)) {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.18
                 w.animator().alphaValue = 0
@@ -43,7 +44,7 @@ enum RegionFlash {
 }
 
 /// The small corner pop-up ("toast" in the code): thumbnail, a short message and the height
-/// badge. Click to show the file in Finder. Fades after 3 seconds (8 when it reports a problem).
+/// badge. Click it to open the file. Fades after 3 seconds (8 when it reports a problem).
 @MainActor
 enum Toast {
     private static var current: NSPanel?
@@ -53,7 +54,7 @@ enum Toast {
         current?.orderOut(nil)
         hideWork?.cancel()
         let view = ToastView(message: message, detail: detail, thumbnail: thumbnail, heightBadge: heightBadge) {
-            if let file { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+            if let file { NSWorkspace.shared.open(file) }
             hide()
         }
         let hosting = NSHostingView(rootView: view)

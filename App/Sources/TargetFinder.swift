@@ -1,10 +1,13 @@
 import AppKit
 import ApplicationServices
+import TallshotCore
 
 /// What kind of area was picked.
 enum RegionKind: String {
     /// A real scrolling area the app reports through Accessibility.
     case scrollArea
+    /// A web element whose content is taller than its box: a scrolling column inside a page.
+    case webElement
     /// A browser tab's page (no tabs or toolbar), used when no scrolling area was found.
     case webArea
     /// The whole window: the last fallback.
@@ -30,6 +33,10 @@ struct CaptureTarget {
     var contentHeight: CGFloat?
     /// Browsers and Chromium/Electron apps: start with small steps (they can overshoot).
     var isBrowserLike = false
+    /// Crop the result to the columns that moved: the region is a fallback in pane mode.
+    var cropToMovement = false
+    /// The accessibility element of the pane, for reading its text during the capture.
+    var textRoot: AXUIElement?
 
     var isScrollArea: Bool { kind == .scrollArea }
     var center: CGPoint { CGPoint(x: region.midX, y: region.midY) }
@@ -109,7 +116,7 @@ enum TargetFinder {
     /// The target under `point`, or a fallback. Turns on Chromium/Electron accessibility first
     /// and retries for up to `waitMs` while the app builds its tree. The returned switch must be
     /// restored when the capture is over.
-    static func find(at point: CGPoint, waitMs: Int = 400) async -> (CaptureTarget, AccessibilitySwitch?)? {
+    static func find(at point: CGPoint, mode: CaptureMode = .pane, waitMs: Int = 400) async -> (CaptureTarget, AccessibilitySwitch?)? {
         guard let window = window(at: point) else { return nil }
         let running = NSRunningApplication(processIdentifier: window.pid)
         let bundleID = running?.bundleIdentifier
@@ -121,19 +128,22 @@ enum TargetFinder {
         var axSwitch: AccessibilitySwitch? = nil
         if !own {
             axSwitch = AccessibilitySwitch(pid: window.pid, bundleID: bundleID)
-            hit = lookUp(at: probe, pid: window.pid)
+            hit = lookUp(at: probe, pid: window.pid, window: window.bounds)
             // A tree that was just switched on takes a moment to build.
             var waited = 0
             while (hit == nil || hit?.kind == .webArea) && waited < waitMs && (axSwitch?.changedSomething ?? false || hit == nil) {
                 try? await Task.sleep(for: .milliseconds(50))
                 waited += 50
-                if let again = lookUp(at: probe, pid: window.pid) { hit = again; if again.kind == .scrollArea { break } }
+                if let again = lookUp(at: probe, pid: window.pid, window: window.bounds) {
+                    hit = again
+                    if again.kind == .scrollArea || again.kind == .webElement { break }
+                }
             }
         }
 
         var region = window.bounds
         var kind = RegionKind.window
-        if let hit {
+        if mode == .pane, let hit {
             let clipped = hit.frame.intersection(window.bounds)
             if clipped.width >= 60 && clipped.height >= 60 { region = clipped; kind = hit.kind }
         }
@@ -144,11 +154,13 @@ enum TargetFinder {
         region = region.integral
         guard region.width >= 20 && region.height >= 20 else { axSwitch?.restore(); return nil }
         let inside = region.insetBy(dx: 4, dy: 4)
-        let scrollPoint = kind != .scrollArea && inside.contains(probe) ? probe : CGPoint(x: region.midX, y: region.midY)
+        let scrollPoint = (kind == .webArea || kind == .window) && inside.contains(probe) ? probe : CGPoint(x: region.midX, y: region.midY)
         let target = CaptureTarget(region: region, windowID: window.id, windowFrame: window.bounds, pid: window.pid, kind: kind,
                                    appName: window.owner, bundleID: bundleID, scrollPoint: scrollPoint,
                                    scrollBar: kind == .scrollArea ? hit?.scrollBar : nil, contentHeight: hit?.contentHeight,
-                                   isBrowserLike: isBrowserLike(bundleID: bundleID, app: running))
+                                   isBrowserLike: isBrowserLike(bundleID: bundleID, app: running),
+                                   cropToMovement: mode == .pane && (kind == .webArea || kind == .window),
+                                   textRoot: hit?.element)
         return (target, axSwitch)
     }
 
@@ -197,11 +209,13 @@ enum TargetFinder {
         var kind: RegionKind
         var scrollBar: AXUIElement?
         var contentHeight: CGFloat?
+        var element: AXUIElement?
     }
 
-    /// Walks up from the element under the pointer to the nearest scroll area. If there is
-    /// none, the nearest web area (a browser tab's page, without the tabs and toolbar).
-    static func lookUp(at point: CGPoint, pid: pid_t) -> Hit? {
+    /// Walks up from the element under the pointer to the window, describing each element, and
+    /// lets `PanePicker` choose: the nearest scroll area or scrolling web column, else the web
+    /// area (a browser tab's page, without the tabs and toolbar).
+    static func lookUp(at point: CGPoint, pid: pid_t, window: CGRect) -> Hit? {
         let system = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(system, 1.0)
         var found: AXUIElement?
@@ -209,19 +223,39 @@ enum TargetFinder {
         var elPid: pid_t = 0
         AXUIElementGetPid(el, &elPid)
         guard elPid == pid else { return nil }
-        var web: Hit? = nil
+        var nodes: [AXNode] = [], elements: [AXUIElement] = []
         for _ in 0..<60 {
-            let role = string(el, kAXRoleAttribute)
-            if role == (kAXScrollAreaRole as String), let f = frame(el), f.width >= 60, f.height >= 60 {
-                return Hit(frame: f, kind: .scrollArea, scrollBar: settableScrollBar(el), contentHeight: contentHeight(el))
-            }
-            if web == nil, role == "AXWebArea", let f = frame(el), f.width >= 60, f.height >= 60 {
-                web = Hit(frame: f, kind: .webArea)
-            }
+            let role = string(el, kAXRoleAttribute) ?? ""
+            if role == (kAXWindowRole as String) { break }
+            let f = frame(el) ?? .zero
+            nodes.append(AXNode(role: role, frame: f, childrenFrame: role == (kAXGroupRole as String) ? childrenExtent(el) : nil))
+            elements.append(el)
             guard let parent: AXUIElement = attribute(el, kAXParentAttribute) else { break }
             el = parent
         }
-        return web
+        let pick = PanePicker.pick(path: nodes, window: window, mode: .pane)
+        guard let i = pick.index else { return nil }
+        let kind: RegionKind = switch pick.kind {
+        case .scrollArea: .scrollArea
+        case .scrollableWebElement: .webElement
+        case .webArea: .webArea
+        case .window: .window
+        }
+        let e = elements[i]
+        return Hit(frame: pick.frame, kind: kind, scrollBar: kind == .scrollArea ? settableScrollBar(e) : nil,
+                   contentHeight: kind == .scrollArea ? contentHeight(e) : nil, element: e)
+    }
+
+    /// The vertical extent of a group's content, from its first and last child.
+    static func childrenExtent(_ el: AXUIElement) -> CGRect? {
+        var count: CFIndex = 0
+        guard AXUIElementGetAttributeValueCount(el, kAXChildrenAttribute as CFString, &count) == .success, count > 0 else { return nil }
+        var first: CFArray?, last: CFArray?
+        AXUIElementCopyAttributeValues(el, kAXChildrenAttribute as CFString, 0, 1, &first)
+        AXUIElementCopyAttributeValues(el, kAXChildrenAttribute as CFString, count - 1, 1, &last)
+        let ends = [(first as? [AXUIElement])?.first, (last as? [AXUIElement])?.first].compactMap { $0 }.compactMap(frame)
+        guard let a = ends.first else { return nil }
+        return ends.dropFirst().reduce(a) { $0.union($1) }
     }
 
     /// The scroll area's vertical scroll bar, if its position (AXValue, 0 to 1) can be set.

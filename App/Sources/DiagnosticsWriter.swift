@@ -28,10 +28,10 @@ enum DiagnosticsWriter {
             let region = "\(Int(r.minX)), \(Int(r.minY)), \(Int(r.width)) x \(Int(r.height)) points, \(target.kind.rawValue)"
                 + (target.isBrowserLike ? ", browser-like app" : "") + (target.scrollBar != nil ? ", settable scroll bar" : "")
             let text = d.text(reason: result.reason, region: region, appName: target.appName + (target.bundleID.map { " (\($0))" } ?? ""), result: result)
-            try Data(text.utf8).write(to: dir.appendingPathComponent("report.txt"), options: .atomic)
+            try Data(text.utf8).write(to: dir.appendingPathComponent("report.txt"), options: .withoutOverwriting)
             for (number, frame) in d.frames {
                 guard let cg = WindowCapturer.cgImage(frame, colorSpace: colorSpace), let png = Delivery.pngData(cg) else { continue }
-                try png.write(to: dir.appendingPathComponent(String(format: "frame-%04d.png", number)), options: .atomic)
+                try png.write(to: dir.appendingPathComponent(String(format: "frame-%04d.png", number)), options: .withoutOverwriting)
             }
             return dir
         } catch {
