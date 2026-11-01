@@ -82,3 +82,80 @@ public struct BarcodeReport: Sendable, Equatable {
                              missing: missing, repeated: repeated, outOfOrder: backwards)
     }
 }
+
+/// Finds Tallshot barcodes anywhere in an image, at any size, and says whether the rows came
+/// out right. Used after every capture: a normal capture has no barcodes and gets no verdict;
+/// a capture of the self-test or the browser test page gets "Passed" or what went wrong.
+public enum BarcodeCheck {
+    public struct Placement: Equatable, Sendable {
+        public var originX: Double
+        public var cellWidth: Double
+        /// Screen pixel rows per page row (2 on a Retina screen).
+        public var pixelsPerRow: Int
+    }
+
+    public struct Verdict: Equatable, Sendable {
+        public var passed: Bool
+        public var report: BarcodeReport
+        /// "Barcode check passed: rows 0 to 2,399 once each, in order."
+        public var message: String
+    }
+
+    /// Where the barcode column is, or nil if the image has none. Samples rows down the image,
+    /// tries every dark run as the start of a code at each cell width, and keeps the placement
+    /// that decodes on the most rows, with row numbers that grow down the image.
+    public static func locate(in image: PixelImage, rows: Range<Int>? = nil, samples: Int = 64) -> Placement? {
+        let range = rows ?? 0..<image.height
+        guard image.width >= Barcode.cellCount * 2, range.count >= 8 else { return nil }
+        let widths = stride(from: 2.0, through: 20.0, by: 0.5).map { $0 }
+        var hits: [Int: [(y: Int, index: Int)]] = [:]   // key: x * 64 + width step
+        let n = min(samples, range.count)
+        for k in 0..<n {
+            let y = range.lowerBound + k * range.count / n
+            var x = 1
+            let limit = image.width - Barcode.cellCount * 2
+            while x < limit {
+                let dark = byteSum(image[x, y]) < 640, before = byteSum(image[x - 1, y]) < 640
+                if dark && !before {
+                    for (wi, cw) in widths.enumerated() where Double(x) + cw * Double(Barcode.cellCount) <= Double(image.width) {
+                        if let i = Barcode.decode(image, row: y, originX: Double(x), cellWidth: cw) {
+                            hits[x * 64 + wi, default: []].append((y, i))
+                        }
+                    }
+                }
+                x += 1
+            }
+        }
+        // The best placement: most rows, and row numbers that never go backwards.
+        // (A capture with a repeat goes backwards once; allow a few such places.)
+        let ranked = hits.filter { _, v in zip(v, v.dropFirst()).filter { $0.index > $1.index }.count * 5 <= v.count }
+            .max { $0.value.count < $1.value.count }
+        guard let (key, found) = ranked, found.count >= max(6, n / 5) else { return nil }
+        let cw = widths[key % 64]
+        return Placement(originX: Double(key / 64), cellWidth: cw,
+                         pixelsPerRow: max(1, Int((cw / Double(TestPage.cellWidth)).rounded(.up))))
+    }
+
+    /// The verdict for a finished capture, or nil when it has no Tallshot barcodes.
+    /// `rows` limits the check to the content (leaving out a fixed header or overlay band).
+    public static func verdict(for image: PixelImage, rows: Range<Int>? = nil) -> Verdict? {
+        guard let p = locate(in: image, rows: rows) else { return nil }
+        let report = BarcodeReport.read(image, originX: p.originX, cellWidth: p.cellWidth, pixelsPerRow: p.pixelsPerRow, rows: rows)
+        guard let first = report.first, let last = report.last else { return nil }
+        if report.isClean {
+            return Verdict(passed: true, report: report,
+                           message: "Barcode check passed: rows \(grouped(first)) to \(grouped(last)) once each, in order.")
+        }
+        var why: [String] = []
+        if !report.missing.isEmpty { why.append("\(grouped(report.missing.count)) rows missing (first at \(grouped(report.missing[0])))") }
+        if !report.repeated.isEmpty { why.append("\(grouped(report.repeated.count)) repeated (first at \(grouped(report.repeated[0])))") }
+        if report.outOfOrder > 0 { why.append("\(report.outOfOrder) out of order") }
+        return Verdict(passed: false, report: report, message: "Barcode check failed: \(why.joined(separator: ", ")).")
+    }
+
+    static func grouped(_ n: Int) -> String {
+        var s = String(n), out = ""
+        while s.count > 3 { out = "," + s.suffix(3) + out; s = String(s.dropLast(3)) }
+        return s + out
+    }
+}

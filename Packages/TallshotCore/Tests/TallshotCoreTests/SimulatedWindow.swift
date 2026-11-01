@@ -28,6 +28,28 @@ final class SimulatedWindow: CaptureDriver {
     var cancelAfterCaptures: Int?
     var overlayCaptures: Set<Int> = []
     var replaceContentAfterScrolls: Int?
+    /// Ways of scrolling this window ignores (ScrollMethod raw values), like Chromium ignoring a
+    /// vertical gesture that carries Shift.
+    var ignoredMethods: Set<ScrollMethod> = []
+    /// Ways of scrolling this window can't do at all (most have no settable scroll bar).
+    var unsupportedMethods: Set<ScrollMethod> = [.scrollBar]
+    private(set) var method = ScrollMethod.gesture
+    private(set) var methodsTried: [ScrollMethod] = []
+    /// Momentum: every request with these methods moves a random 2 to 4 times further,
+    /// usually with an animated glide (`smoothFrames`).
+    var overshoot: ClosedRange<Double>?
+    var overshootMethods: Set<ScrollMethod> = [.gesture, .wheelPixels]
+    /// A chat that loads older messages when you reach the top: `hiddenTop` rows are not loaded
+    /// yet; each load reveals `loadRows` more, `loadDelay` seconds after reaching the top.
+    var hiddenTop = 0
+    var loadRows = 400
+    var loadDelay = 0.8
+    private var loadRequestedAt: Double?
+    /// Floating overlays above the footer: chips with see-through gaps, a fade over the text,
+    /// and a message box with see-through margins (content scrolls under all of them).
+    var chipsBand = 0
+    var fadeBand = 0
+    var composerMargin = 0
 
     private(set) var captures = 0
     private(set) var scrolls = 0
@@ -82,6 +104,7 @@ final class SimulatedWindow: CaptureDriver {
     func captureFrame() async throws -> PixelImage {
         captures += 1
         clock += 0.03
+        checkLoad()
         if let c = cancelAfterCaptures, captures >= c { cancelled = true }
         if overlayCaptures.contains(captures) {
             // A transient popup covering everything, the same on every capture while it shows.
@@ -99,11 +122,35 @@ final class SimulatedWindow: CaptureDriver {
     func render(at p: Int) -> PixelImage {
         var img = PixelImage(width: width, height: height, fill: TestPage.white)
         if let header { for y in 0..<h { for x in 0..<width { img[x, y] = header[x, y] } } }
-        if let footer { for y in 0..<f { for x in 0..<width { img[x, height - f + y] = footer[x, y] } } }
-        for r in 0..<middle {
+        if let footer, composerMargin == 0 { for y in 0..<f { for x in 0..<width { img[x, height - f + y] = footer[x, y] } } }
+        for r in 0..<(composerMargin > 0 ? height - h : middle) {
             let py = p + r
             if py < page.height { for x in 0..<page.width { img[s + x, h + r] = page[x, py] } }
-            if let sidebar { for x in 0..<s { img[x, h + r] = sidebar[x, r] } }
+            if let sidebar, r < middle { for x in 0..<s { img[x, h + r] = sidebar[x, r] } }
+        }
+        if let footer, composerMargin > 0 {
+            // A message box floating over the text, with see-through margins around it.
+            for y in 0..<(f - composerMargin) { for x in composerMargin..<(width - composerMargin) { img[x, height - f + y] = footer[x, y] } }
+        }
+        if fadeBand > 0 {
+            // A fade from clear to white over the bottom of the text.
+            let top = height - f - chipsBand - fadeBand
+            for r in 0..<(fadeBand + chipsBand) {
+                let alpha = min(1.0, Double(r + 1) / Double(fadeBand + 1)) * 0.85
+                for x in 0..<width { img[x, top + r] = Self.blend(img[x, top + r], TestPage.white, alpha) }
+            }
+        }
+        if chipsBand > 0 {
+            // Action chips floating over the text, with gaps between them.
+            let top = height - f - chipsBand
+            for y in (top + 6)..<(top + chipsBand - 6) {
+                for x0 in stride(from: s + 150, to: width - 70, by: 90) { for x in x0..<(x0 + 60) { img[x, y] = TestPage.rgba(225, 232, 250) } }
+            }
+        }
+        if loadRequestedAt != nil {
+            // A loading spinner at the top while older messages load.
+            let c = TestPage.rgba(UInt8(captures * 53 % 256), 120, 220)
+            for y in (h + 4)..<(h + 10) { for x in (width / 2)..<(width / 2 + 6) { img[x, y] = c } }
         }
         if fixedPatch {
             // A spinner fixed on screen, a different color on every capture.
@@ -123,9 +170,38 @@ final class SimulatedWindow: CaptureDriver {
         return img
     }
 
+    static func blend(_ p: UInt32, _ q: UInt32, _ a: Double) -> UInt32 {
+        var out: UInt32 = 0
+        for shift in stride(from: 0, to: 32, by: 8) {
+            let x = Double((p >> UInt32(shift)) & 0xFF), y = Double((q >> UInt32(shift)) & 0xFF)
+            out |= UInt32((x * (1 - a) + y * a).rounded()) << UInt32(shift)
+        }
+        return out
+    }
+
+    func setScrollMethod(_ m: ScrollMethod) -> Bool {
+        guard !unsupportedMethods.contains(m) else { return false }
+        method = m
+        if methodsTried.last != m { methodsTried.append(m) }
+        return true
+    }
+
+    private func checkLoad() {
+        guard let t = loadRequestedAt, clock - t >= loadDelay else { return }
+        hiddenTop = max(0, hiddenTop - loadRows)
+        loadRequestedAt = nil
+    }
+
     func scroll(pixels: Int) async throws {
         scrolls += 1
         clock += 0.01
+        if ignoredMethods.contains(method) { return }
+        var pixels = pixels
+        if let o = overshoot, overshootMethods.contains(method) {
+            let k = o.lowerBound + (o.upperBound - o.lowerBound) * Double(rng.next() % 1000) / 999
+            pixels = Int((Double(pixels) * k).rounded())
+        }
+        if pixels < 0 && pos == hiddenTop && hiddenTop > 0 && loadRequestedAt == nil { loadRequestedAt = clock }
         if let n = replaceContentAfterScrolls, scrolls == n {
             pageSeed &+= 1000
             page = TestPage.make(width: page.width, height: page.height, seed: pageSeed, firstIndex: 100_000)
@@ -139,12 +215,12 @@ final class SimulatedWindow: CaptureDriver {
             // Infinite scroll: more content loads when you reach the bottom.
             page = TestPage.make(width: page.width, height: min(growLimit, page.height + growStep), seed: pageSeed)
         }
-        target = min(max(0, target), maxPos)
+        target = min(max(hiddenTop, target), maxPos)
         if smoothFrames > 0 && target != pos { anim = (pos, target, smoothFrames) }
         pos = target
     }
 
-    func pause(milliseconds: Int) async { clock += Double(milliseconds) / 1000 }
+    func pause(milliseconds: Int) async { clock += Double(milliseconds) / 1000; checkLoad() }
 
     func reverseScrollDirection() { invertScroll.toggle() }
 

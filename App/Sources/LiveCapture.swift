@@ -71,33 +71,51 @@ final class WindowCapturer {
     }
 }
 
-/// Sends scroll-wheel events, the same signal a trackpad sends.
+/// Posts scroll events built by `ScrollEvents` (private source, no modifier keys, proper phases).
 @MainActor
 enum ScrollPoster {
-    /// Marks Tallshot's own events so the cancel monitor can tell them from the user's.
-    static let marker: Int64 = 0x5441_4C4C   // "TALL"
+    static var marker: Int64 { ScrollEvents.marker }
 
     /// Scrolls the content under `point` up by `points` (negative scrolls back toward the top).
-    static func scroll(points: Int, at point: CGPoint, inverted: Bool) async {
-        let source = CGEventSource(stateID: .hidSystemState)
-        var left = abs(points)
-        let direction: Int32 = (points > 0) != inverted ? -1 : 1
-        while left > 0 {
-            let chunk = min(left, 240)
-            left -= chunk
-            guard let e = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 1,
-                                  wheel1: direction * Int32(chunk), wheel2: 0, wheel3: 0) else { return }
-            e.location = point
-            e.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-            e.setIntegerValueField(.eventSourceUserData, value: marker)
+    static func scroll(points: Int, at point: CGPoint, inverted: Bool, method: ScrollMethod) async {
+        let events = ScrollEvents.make(points: points, at: point, inverted: inverted, method: method)
+        for (i, e) in events.enumerated() {
             e.post(tap: .cghidEventTap)
-            if left > 0 { try? await Task.sleep(for: .milliseconds(8)) }
+            if i < events.count - 1 { try? await Task.sleep(for: .milliseconds(8)) }
         }
     }
 }
 
-/// The real-world `CaptureDriver`: ScreenCaptureKit pictures, scroll-wheel events at the
-/// middle of the region, and a watch for Esc, clicks, keys or mouse movement that cancel.
+/// Moves a scroll area by setting its scroll bar through Accessibility: exact, no animation,
+/// no momentum. The value runs from 0 (top) to 1 (bottom).
+@MainActor
+struct ScrollBarMover {
+    let bar: AXUIElement
+    /// Points of content per whole 0...1 range. Starts from what the app reports (or a guess
+    /// of ten screens); the capture loop corrects for any error by measuring each step.
+    let range: CGFloat
+
+    init(bar: AXUIElement, contentHeight: CGFloat?, visibleHeight: CGFloat) {
+        self.bar = bar
+        let extra = (contentHeight ?? 0) - visibleHeight
+        range = extra > visibleHeight * 0.2 ? extra : visibleHeight * 10
+    }
+
+    var value: Double? {
+        let n: NSNumber? = TargetFinder.attribute(bar, kAXValueAttribute)
+        return n?.doubleValue
+    }
+
+    /// Returns false if the app refused.
+    func move(points: Int) -> Bool {
+        guard let v = value else { return false }
+        let next = min(1, max(0, v + Double(points) / Double(range)))
+        return AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: next)) == .success
+    }
+}
+
+/// The real-world `CaptureDriver`: ScreenCaptureKit pictures, scroll events (or the scroll bar)
+/// at the scroll point, and a watch for Esc, clicks, keys or mouse movement that cancel.
 @MainActor
 final class LiveDriver: CaptureDriver {
     let target: CaptureTarget
@@ -107,19 +125,23 @@ final class LiveDriver: CaptureDriver {
     private var pointerMoved = false
     private var inverted = false
     private let savedPointer: CGPoint
+    private(set) var method = ScrollMethod.gesture
+    private let mover: ScrollBarMover?
 
     init(target: CaptureTarget, capturer: WindowCapturer) {
         self.target = target
         self.capturer = capturer
         savedPointer = TargetFinder.pointerLocation()
+        let own = target.pid == ProcessInfo.processInfo.processIdentifier
+        mover = (own ? nil : target.scrollBar).map { ScrollBarMover(bar: $0, contentHeight: target.contentHeight, visibleHeight: target.region.height) }
     }
 
     var isCancelled: Bool { cancelledByUser }
     var now: Double { ProcessInfo.processInfo.systemUptime }
 
-    /// Moves the pointer to the middle of the region and starts watching for the user.
+    /// Moves the pointer to the scroll point and starts watching for the user.
     func begin() {
-        CGWarpMouseCursorPosition(target.center)
+        CGWarpMouseCursorPosition(target.scrollPoint)
         let mask: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .mouseMoved, .leftMouseDragged]
         let handler: (NSEvent) -> Void = { [weak self] e in self?.userEvent(e) }
         if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler) { monitors.append(m) }
@@ -140,7 +162,7 @@ final class LiveDriver: CaptureDriver {
             cancelledByUser = true
         case .mouseMoved, .leftMouseDragged:
             let p = TargetFinder.pointerLocation()
-            if hypot(p.x - target.center.x, p.y - target.center.y) > 8 { cancelledByUser = true; pointerMoved = true }
+            if hypot(p.x - target.scrollPoint.x, p.y - target.scrollPoint.y) > 8 { cancelledByUser = true; pointerMoved = true }
         default:
             cancelledByUser = true
             if e.type != .keyDown { pointerMoved = true }
@@ -149,9 +171,21 @@ final class LiveDriver: CaptureDriver {
 
     func captureFrame() async throws -> PixelImage { try await capturer.capture() }
 
+    func setScrollMethod(_ m: ScrollMethod) -> Bool {
+        if m == .scrollBar && mover == nil { return false }
+        method = m
+        return true
+    }
+
     func scroll(pixels: Int) async throws {
         let points = Int((CGFloat(pixels) / capturer.scale).rounded())
-        await ScrollPoster.scroll(points: points, at: target.center, inverted: inverted)
+        guard points != 0 else { return }
+        if method == .scrollBar, let mover {
+            // The scroll bar runs top to bottom; a flipped direction flips it too.
+            _ = mover.move(points: inverted ? -points : points)
+            return
+        }
+        await ScrollPoster.scroll(points: points, at: target.scrollPoint, inverted: inverted, method: method)
     }
 
     func reverseScrollDirection() { inverted.toggle() }

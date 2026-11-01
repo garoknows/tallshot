@@ -48,6 +48,8 @@ final class SelfTestBar: NSView {
 final class SelfTestState: ObservableObject {
     enum Phase: Equatable { case idle, running, passed(String), failed(String) }
     @Published var phase: Phase = .idle
+    /// How the last run was started: "menu" or "hotkey".
+    @Published var via = "menu"
 }
 
 /// Opens the test page and runs a real end-to-end capture of it: Accessibility finds the
@@ -70,7 +72,40 @@ final class SelfTest {
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
         state.phase = .running
-        Task { await runCapture() }
+        state.via = "menu"
+        Task { await runCapture(viaHotkey: false) }
+    }
+
+    /// True when `point` (top-left screen coordinates) is over the visible test page.
+    func contains(_ point: CGPoint) -> Bool {
+        guard let w = window, w.isVisible, let r = pageRegion() else { return false }
+        return r.contains(point)
+    }
+
+    /// The hotkey was pressed while pointing at the test page: run the same check through the
+    /// real hotkey path (keys still held, modifier wait, clean scroll events).
+    func runFromHotkey() {
+        guard state.phase != .running else { return }
+        state.phase = .running
+        state.via = "hotkey"
+        Task { await runCapture(viaHotkey: true) }
+    }
+
+    /// The test page's scroll view on screen, in top-left coordinates.
+    private func pageRegion() -> CGRect? {
+        guard let w = window, let sv = scrollView else { return nil }
+        let f = w.convertToScreen(sv.convert(sv.bounds, to: nil))
+        return CGRect(x: f.minX, y: TargetFinder.mainHeight - f.maxY, width: f.width, height: f.height)
+    }
+
+    /// The test page is Tallshot's own window, so its region is known directly. (Asking
+    /// Accessibility about our own window from the main thread would wait on itself.)
+    private func target() -> CaptureTarget? {
+        guard let w = window, let r = pageRegion()?.integral else { return nil }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        return CaptureTarget(region: r, windowID: CGWindowID(w.windowNumber), windowFrame: w.frame, pid: pid, kind: .scrollArea,
+                             appName: "Tallshot Self-Test", bundleID: Bundle.main.bundleIdentifier,
+                             scrollPoint: CGPoint(x: r.midX, y: r.midY))
     }
 
     private func makeWindow() -> NSWindow {
@@ -105,31 +140,39 @@ final class SelfTest {
         return w
     }
 
-    private func runCapture() async {
+    private func runCapture(viaHotkey: Bool) async {
         guard let w = window, let sv = scrollView else { return }
         // Start at the top of the page.
         sv.contentView.scroll(to: NSPoint(x: 0, y: -toolbarHeight))
         sv.reflectScrolledClipView(sv.contentView)
         try? await Task.sleep(for: .milliseconds(400))
 
-        let frameOnScreen = w.convertToScreen(sv.convert(sv.bounds, to: nil))
-        let topLeft = CGRect(x: frameOnScreen.minX, y: TargetFinder.mainHeight - frameOnScreen.maxY,
-                             width: frameOnScreen.width, height: frameOnScreen.height)
-        let pid = ProcessInfo.processInfo.processIdentifier
-        guard let target = TargetFinder.find(at: CGPoint(x: topLeft.midX, y: topLeft.midY), onlyPID: pid) else {
+        guard let target = target() else {
             state.phase = .failed("Couldn't find the test window on screen.")
             return
         }
         let start = Date()
         do {
-            let (result, capturer) = try await AppModel.run(target: target, options: Settings.shared.captureOptions(fromTop: false))
+            var options = Settings.shared.captureOptions(fromTop: false)
+            options.keepDiagnostics = false
+            let (result, capturer) = try await AppModel.run(target: target, options: options)
             let seconds = Date().timeIntervalSince(start)
             state.phase = verdict(result, scale: capturer.scale, target: target, seconds: seconds)
+            if viaHotkey {
+                // The hotkey path also shows the pop-up, as a real capture would (nothing is saved).
+                switch state.phase {
+                case .passed(let m): Toast.show(message: "Self-test passed (hotkey).", detail: m, near: target.region, seconds: 8)
+                case .failed(let m): Toast.show(message: "Self-test failed (hotkey).", detail: m, near: target.region, seconds: 8)
+                default: break
+                }
+            }
         } catch {
             state.phase = .failed("Capture failed: \(error.localizedDescription)")
         }
-        NSApp.activate(ignoringOtherApps: true)
-        w.makeKeyAndOrderFront(nil)
+        if !viaHotkey {
+            NSApp.activate(ignoringOtherApps: true)
+            w.makeKeyAndOrderFront(nil)
+        }
     }
 
     func verdict(_ r: CaptureResult, scale: CGFloat, target: CaptureTarget, seconds: Double) -> SelfTestState.Phase {
@@ -137,7 +180,9 @@ final class SelfTest {
         let report = BarcodeReport.read(r.image, originX: Double(TestPage.barcodeX * s), cellWidth: Double(TestPage.cellWidth * s), pixelsPerRow: s)
         let time = String(format: "%.1f s", seconds)
         if !target.isScrollArea { return .failed("Accessibility didn't report the scroll area (used the whole window).") }
-        if r.reason != .bottom { return .failed("Stopped early (\(r.reason.rawValue)) after \(report.distinctRows) of \(rows) rows, \(time).") }
+        if r.reason != .bottom {
+            return .failed("\(r.reason.headline ?? "Stopped early"): \(r.reason.note) \(report.distinctRows) of \(rows) rows, \(time), scrolling by \(r.scrollMethod).")
+        }
         guard report.isClean, report.first == 0, report.last == rows - 1 else {
             var why: [String] = []
             if !report.missing.isEmpty { why.append("\(report.missing.count) rows missing") }
@@ -172,13 +217,15 @@ struct SelfTestStatusView: View {
             case .passed(let msg):
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 26)).foregroundStyle(.green)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Passed").font(.headline)
+                    Text(state.via == "hotkey" ? "Passed (hotkey)" : "Passed").font(.headline)
                     Text(msg).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text("Now point at the page and press \(Settings.shared.captureHotkey?.display ?? "the hotkey") to test the hotkey path.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             case .failed(let msg):
                 Image(systemName: "xmark.octagon.fill").font(.system(size: 26)).foregroundStyle(.red)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Failed").font(.headline)
+                    Text(state.via == "hotkey" ? "Failed (hotkey)" : "Failed").font(.headline)
                     Text(msg).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }

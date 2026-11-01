@@ -69,6 +69,7 @@ final class Settings: ObservableObject {
         static let captureHotkey = "captureHotkey", fromTopHotkey = "fromTopHotkey", saveFolder = "saveFolder"
         static let copy = "copyToClipboard", save = "saveToFolder", toast = "showToast", sound = "shutterSound"
         static let speed = "scrollSpeed", maxHeight = "maxHeight", maxSeconds = "maxSeconds", setupShown = "setupShown"
+        static let diagnostics = "keepDiagnostics"
     }
 
     @Published var captureHotkey: Hotkey? { didSet { store(captureHotkey, Keys.captureHotkey) } }
@@ -83,10 +84,12 @@ final class Settings: ObservableObject {
     @Published var maxHeight: Int { didSet { d.set(maxHeight, forKey: Keys.maxHeight) } }
     @Published var maxSeconds: Int { didSet { d.set(maxSeconds, forKey: Keys.maxSeconds) } }
     @Published var setupShown: Bool { didSet { d.set(setupShown, forKey: Keys.setupShown) } }
+    /// Off by default. When on, a capture that stops early leaves a diagnostic folder next to it.
+    @Published var keepDiagnostics: Bool { didSet { d.set(keepDiagnostics, forKey: Keys.diagnostics) } }
 
     private init() {
         d.register(defaults: [Keys.copy: true, Keys.save: true, Keys.toast: true, Keys.sound: false,
-                              Keys.speed: ScrollSpeed.normal.rawValue, Keys.maxHeight: 30_000, Keys.maxSeconds: 60])
+                              Keys.speed: ScrollSpeed.normal.rawValue, Keys.maxHeight: 30_000, Keys.maxSeconds: 60, Keys.diagnostics: false])
         captureHotkey = d.object(forKey: Keys.captureHotkey) == nil ? .defaultCapture : Self.load(d, Keys.captureHotkey)
         fromTopHotkey = Self.load(d, Keys.fromTopHotkey)
         saveFolder = d.string(forKey: Keys.saveFolder).map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -98,6 +101,7 @@ final class Settings: ObservableObject {
         maxHeight = d.integer(forKey: Keys.maxHeight)
         maxSeconds = d.integer(forKey: Keys.maxSeconds)
         setupShown = d.bool(forKey: Keys.setupShown)
+        keepDiagnostics = d.bool(forKey: Keys.diagnostics)
     }
 
     /// A hotkey is stored as Data; "none" is stored as empty Data so it isn't reset to the default.
@@ -120,6 +124,7 @@ final class Settings: ObservableObject {
         o.maxHeight = maxHeight
         o.maxSeconds = Double(maxSeconds)
         o.fromTop = fromTop
+        o.keepDiagnostics = keepDiagnostics
         return o
     }
 }

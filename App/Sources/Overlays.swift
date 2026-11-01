@@ -42,14 +42,14 @@ enum RegionFlash {
     }
 }
 
-/// The small corner toast: thumbnail, a short message and the height badge. Click to show the
-/// file in Finder. Fades after 3 seconds.
+/// The small corner pop-up ("toast" in the code): thumbnail, a short message and the height
+/// badge. Click to show the file in Finder. Fades after 3 seconds (8 when it reports a problem).
 @MainActor
 enum Toast {
     private static var current: NSPanel?
     private static var hideWork: DispatchWorkItem?
 
-    static func show(message: String, detail: String? = nil, thumbnail: NSImage? = nil, heightBadge: String? = nil, file: URL? = nil, near region: CGRect? = nil) {
+    static func show(message: String, detail: String? = nil, thumbnail: NSImage? = nil, heightBadge: String? = nil, file: URL? = nil, near region: CGRect? = nil, seconds: Double = 3) {
         current?.orderOut(nil)
         hideWork?.cancel()
         let view = ToastView(message: message, detail: detail, thumbnail: thumbnail, heightBadge: heightBadge) {
@@ -69,7 +69,7 @@ enum Toast {
         current = w
         let work = DispatchWorkItem { MainActor.assumeIsolated { hide() } }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     static func hide() {
@@ -101,7 +101,7 @@ struct ToastView: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(message).font(.system(size: 13, weight: .semibold, design: .rounded))
-                if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(.secondary) }
+                if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 if let heightBadge {
                     Text(heightBadge).font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(Brand.night)
                         .padding(.horizontal, 6).padding(.vertical, 2)

@@ -160,7 +160,8 @@ struct RobustnessTests {
     @Test func alignerFindsExactOffsetAndBands() {
         let page = TestPage.make(width: 300, height: 1200, seed: 4)
         let a = page.rows(100..<500), b = page.rows(417..<817)
-        #expect(FrameAligner().align(a, b, expected: 300) == .moved(PairLayout(header: 0, footer: 0, offset: 317, score: 1)))
+        guard case .moved(let l) = FrameAligner().align(a, b, expected: 300) else { Issue.record("expected a move"); return }
+        #expect(l.header == 0 && l.footer == 0 && l.offset == 317 && l.score == 1 && l.overlayBand == 0)
         #expect(FrameAligner().align(a, a) == .noMovement)
     }
 }
@@ -169,9 +170,11 @@ struct RobustnessTests {
 @MainActor
 struct BottomTests {
     @Test func shortPageThatDoesNotScroll() async throws {
+        // Moving nothing on the very first step is never reported as the bottom.
         let w = SimulatedWindow(height: 400, pageHeight: 250, header: 30)
         let r = try await capture(w)
-        #expect(r.reason == .bottom)
+        #expect(r.reason == .didNotScroll)
+        #expect(w.methodsTried == [.gesture, .wheelPixels, .wheelLines])
         #expect(r.steps == 0)
         #expect(mismatch(r.image, w.expected(from: 0)) == nil)
     }

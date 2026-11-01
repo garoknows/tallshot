@@ -1,6 +1,16 @@
 import AppKit
 import ApplicationServices
 
+/// What kind of area was picked.
+enum RegionKind: String {
+    /// A real scrolling area the app reports through Accessibility.
+    case scrollArea
+    /// A browser tab's page (no tabs or toolbar), used when no scrolling area was found.
+    case webArea
+    /// The whole window: the last fallback.
+    case window
+}
+
 /// What to capture: one window, and the scrolling area inside it.
 struct CaptureTarget {
     /// The capture region in global screen points, origin at the top-left of the main display.
@@ -8,11 +18,68 @@ struct CaptureTarget {
     var windowID: CGWindowID
     var windowFrame: CGRect
     var pid: pid_t
-    /// True when the region is a real scrolling area; false for the front-window fallback.
-    var isScrollArea: Bool
+    var kind: RegionKind
     var appName: String
+    var bundleID: String?
+    /// Where scroll events are sent. The middle of a real scrolling area; for a fallback, the
+    /// spot the user pointed at (the part that scrolls may not be in the middle of the window).
+    var scrollPoint: CGPoint
+    /// The area's vertical scroll bar, when the app lets Tallshot set its position directly.
+    var scrollBar: AXUIElement?
+    /// Height of the scrolled content in points, when the app reports it.
+    var contentHeight: CGFloat?
+    /// Browsers and Chromium/Electron apps: start with small steps (they can overshoot).
+    var isBrowserLike = false
 
+    var isScrollArea: Bool { kind == .scrollArea }
     var center: CGPoint { CGPoint(x: region.midX, y: region.midY) }
+}
+
+/// Chromium and Electron apps hide their accessibility tree until an assistive app asks for it.
+/// This turns it on for one app and puts back what it changed when the capture is over.
+@MainActor
+final class AccessibilitySwitch {
+    /// Chromium-based browsers that build their tree for `AXEnhancedUserInterface`.
+    static let chromiumBrowsers: [String] = [
+        "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
+        "org.chromium.Chromium", "company.thebrowser.Browser", "company.thebrowser.dia", "com.microsoft.edgemac",
+        "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.brave.Browser", "com.brave.Browser.beta",
+        "com.vivaldi.Vivaldi", "com.operasoftware.Opera",
+    ]
+
+    let app: AXUIElement
+    private var enhancedBefore: Bool?
+    private(set) var changedSomething = false
+
+    init(pid: pid_t, bundleID: String?) {
+        app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 1.0)
+        // Electron's switch. Apps that don't know it just say "unsupported".
+        if !Self.bool(app, "AXManualAccessibility") {
+            if AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success { changedSomething = true }
+        }
+        // Chromium browsers' switch. Remember the old value: it can disturb window animations.
+        if let id = bundleID, Self.chromiumBrowsers.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) {
+            let before = Self.bool(app, "AXEnhancedUserInterface")
+            enhancedBefore = before
+            if !before, AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue) == .success {
+                changedSomething = true
+            }
+        }
+    }
+
+    /// Puts `AXEnhancedUserInterface` back the way it was.
+    func restore() {
+        guard let before = enhancedBefore, !before else { return }
+        AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
+        enhancedBefore = nil
+    }
+
+    static func bool(_ el: AXUIElement, _ name: String) -> Bool {
+        var v: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success, let v else { return false }
+        return (v as? Bool) ?? ((v as? NSNumber)?.boolValue ?? false)
+    }
 }
 
 /// Finds the scrolling area under the pointer through the Accessibility interface.
@@ -30,30 +97,70 @@ enum TargetFinder {
         CGEvent(source: nil)?.location ?? .zero
     }
 
-    /// The target under `point`, or the front window's content area if nothing there scrolls.
-    static func find(at point: CGPoint, onlyPID: pid_t? = nil) -> CaptureTarget? {
+    /// The window under `point` (or the front window when the pointer is on the menu bar).
+    static func window(at point: CGPoint) -> WindowInfo? {
         let windows = windowList()
         let own = ProcessInfo.processInfo.processIdentifier
-        let under = windows.first { $0.bounds.contains(point) && (onlyPID == nil || $0.pid == onlyPID) }
+        let under = windows.first { $0.bounds.contains(point) }
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        guard let window = under ?? windows.first(where: { $0.pid == front && $0.pid != own }) else { return nil }
+        return under ?? windows.first(where: { $0.pid == front && $0.pid != own })
+    }
 
-        var region = window.bounds
-        var isScroll = false
+    /// The target under `point`, or a fallback. Turns on Chromium/Electron accessibility first
+    /// and retries for up to `waitMs` while the app builds its tree. The returned switch must be
+    /// restored when the capture is over.
+    static func find(at point: CGPoint, waitMs: Int = 400) async -> (CaptureTarget, AccessibilitySwitch?)? {
+        guard let window = window(at: point) else { return nil }
+        let running = NSRunningApplication(processIdentifier: window.pid)
+        let bundleID = running?.bundleIdentifier
+        let own = window.pid == ProcessInfo.processInfo.processIdentifier
         // From the menu the pointer is on the menu bar: look at the middle of the front window instead.
         let probe = window.bounds.contains(point) ? point : CGPoint(x: window.bounds.midX, y: window.bounds.midY)
-        if let area = scrollArea(at: probe, pid: window.pid) {
-            let clipped = area.intersection(window.bounds)
-            if clipped.width >= 60 && clipped.height >= 60 { region = clipped; isScroll = true }
+
+        var hit: Hit? = nil
+        var axSwitch: AccessibilitySwitch? = nil
+        if !own {
+            axSwitch = AccessibilitySwitch(pid: window.pid, bundleID: bundleID)
+            hit = lookUp(at: probe, pid: window.pid)
+            // A tree that was just switched on takes a moment to build.
+            var waited = 0
+            while (hit == nil || hit?.kind == .webArea) && waited < waitMs && (axSwitch?.changedSomething ?? false || hit == nil) {
+                try? await Task.sleep(for: .milliseconds(50))
+                waited += 50
+                if let again = lookUp(at: probe, pid: window.pid) { hit = again; if again.kind == .scrollArea { break } }
+            }
+        }
+
+        var region = window.bounds
+        var kind = RegionKind.window
+        if let hit {
+            let clipped = hit.frame.intersection(window.bounds)
+            if clipped.width >= 60 && clipped.height >= 60 { region = clipped; kind = hit.kind }
         }
         // Keep to the part that is on a screen, so the pointer can sit in the middle of it.
         if let screen = screenFrames().first(where: { $0.contains(CGPoint(x: region.midX, y: region.midY)) }) {
             region = region.intersection(screen)
         }
         region = region.integral
-        guard region.width >= 20 && region.height >= 20 else { return nil }
-        return CaptureTarget(region: region, windowID: window.id, windowFrame: window.bounds, pid: window.pid,
-                             isScrollArea: isScroll, appName: window.owner)
+        guard region.width >= 20 && region.height >= 20 else { axSwitch?.restore(); return nil }
+        let inside = region.insetBy(dx: 4, dy: 4)
+        let scrollPoint = kind != .scrollArea && inside.contains(probe) ? probe : CGPoint(x: region.midX, y: region.midY)
+        let target = CaptureTarget(region: region, windowID: window.id, windowFrame: window.bounds, pid: window.pid, kind: kind,
+                                   appName: window.owner, bundleID: bundleID, scrollPoint: scrollPoint,
+                                   scrollBar: kind == .scrollArea ? hit?.scrollBar : nil, contentHeight: hit?.contentHeight,
+                                   isBrowserLike: isBrowserLike(bundleID: bundleID, app: running))
+        return (target, axSwitch)
+    }
+
+    /// Browsers and Chromium/Electron apps, which scroll with momentum and smooth animation.
+    static func isBrowserLike(bundleID: String?, app: NSRunningApplication?) -> Bool {
+        if let id = bundleID {
+            if AccessibilitySwitch.chromiumBrowsers.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) { return true }
+            if ["com.apple.Safari", "com.apple.SafariTechnologyPreview", "org.mozilla.firefox"].contains(id) { return true }
+        }
+        if let url = app?.bundleURL?.appendingPathComponent("Contents/Frameworks/Electron Framework.framework"),
+           FileManager.default.fileExists(atPath: url.path) { return true }
+        return false
     }
 
     struct WindowInfo { var id: CGWindowID; var bounds: CGRect; var pid: pid_t; var owner: String }
@@ -85,23 +192,55 @@ enum TargetFinder {
         return NSScreen.screens.first { $0.frame.contains(c) }?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
     }
 
-    /// Walks up from the element under the pointer to the nearest scroll area and returns its frame.
-    static func scrollArea(at point: CGPoint, pid: pid_t) -> CGRect? {
+    struct Hit {
+        var frame: CGRect
+        var kind: RegionKind
+        var scrollBar: AXUIElement?
+        var contentHeight: CGFloat?
+    }
+
+    /// Walks up from the element under the pointer to the nearest scroll area. If there is
+    /// none, the nearest web area (a browser tab's page, without the tabs and toolbar).
+    static func lookUp(at point: CGPoint, pid: pid_t) -> Hit? {
         let system = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(system, 1.0)
-        var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit) == .success, var el = hit else { return nil }
+        var found: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &found) == .success, var el = found else { return nil }
         var elPid: pid_t = 0
         AXUIElementGetPid(el, &elPid)
         guard elPid == pid else { return nil }
-        for _ in 0..<40 {
-            if string(el, kAXRoleAttribute) == (kAXScrollAreaRole as String), let f = frame(el), f.width >= 60, f.height >= 60 {
-                return f
+        var web: Hit? = nil
+        for _ in 0..<60 {
+            let role = string(el, kAXRoleAttribute)
+            if role == (kAXScrollAreaRole as String), let f = frame(el), f.width >= 60, f.height >= 60 {
+                return Hit(frame: f, kind: .scrollArea, scrollBar: settableScrollBar(el), contentHeight: contentHeight(el))
             }
-            guard let parent: AXUIElement = attribute(el, kAXParentAttribute) else { return nil }
+            if web == nil, role == "AXWebArea", let f = frame(el), f.width >= 60, f.height >= 60 {
+                web = Hit(frame: f, kind: .webArea)
+            }
+            guard let parent: AXUIElement = attribute(el, kAXParentAttribute) else { break }
             el = parent
         }
-        return nil
+        return web
+    }
+
+    /// The scroll area's vertical scroll bar, if its position (AXValue, 0 to 1) can be set.
+    static func settableScrollBar(_ area: AXUIElement) -> AXUIElement? {
+        guard let bar: AXUIElement = attribute(area, kAXVerticalScrollBarAttribute) else { return nil }
+        var settable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(bar, kAXValueAttribute as CFString, &settable) == .success, settable.boolValue,
+              let _: NSNumber = attribute(bar, kAXValueAttribute) else { return nil }
+        return bar
+    }
+
+    /// The height of what the scroll area scrolls (its tallest child that isn't a scroll bar).
+    static func contentHeight(_ area: AXUIElement) -> CGFloat? {
+        guard let children: [AXUIElement] = attribute(area, kAXChildrenAttribute) else { return nil }
+        let heights = children.compactMap { c -> CGFloat? in
+            guard string(c, kAXRoleAttribute) != (kAXScrollBarRole as String) else { return nil }
+            return frame(c)?.height
+        }
+        return heights.max()
     }
 
     static func attribute<T>(_ el: AXUIElement, _ name: String) -> T? {

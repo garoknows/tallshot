@@ -13,13 +13,16 @@ enum Delivery {
         var error: String?
     }
 
-    /// "Tallshot 2026-10-31 at 14.05.22.png"
-    static func fileName(for date: Date) -> String {
+    /// "Tallshot 2026-10-31 at 14.05.22"
+    static func baseName(for date: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        return "Tallshot \(f.string(from: date)).png"
+        return "Tallshot \(f.string(from: date))"
     }
+
+    /// "Tallshot 2026-10-31 at 14.05.22.png"
+    static func fileName(for date: Date) -> String { baseName(for: date) + ".png" }
 
     /// A name that doesn't overwrite an existing file: "… 2.png", "… 3.png".
     static func uniqueURL(in folder: URL, name: String) -> URL {
