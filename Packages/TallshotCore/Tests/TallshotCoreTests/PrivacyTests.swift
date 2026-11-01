@@ -20,6 +20,19 @@ struct PrivacyTests {
         }
     }
 
+    /// With the diagnostics setting off (the default), a capture that stops early keeps no
+    /// frames for a report and leaves nothing on disk.
+    @Test func earlyStopWithDiagnosticsOffWritesNothing() async throws {
+        let started = Date().addingTimeInterval(-1)
+        let w = SimulatedWindow(pageHeight: 4000, seed: 0xBADC0DE)
+        w.replaceContentAfterScrolls = 3
+        let r = try await CaptureSession(driver: w).run()
+        #expect(r.reason.isEarly)
+        #expect(r.diagnostics == nil)
+        let needles: [Data] = [100, 300].map { y in r.image.row(y).withUnsafeBytes { Data($0) } }
+        #expect(filesContaining(needles, writtenSince: started).isEmpty)
+    }
+
 }
 
 /// Files in the temp folder and the user's caches, written since `date`, that contain any needle.

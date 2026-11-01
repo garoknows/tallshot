@@ -44,6 +44,20 @@ final class Bar: NSView {
     }
 }
 
+/// Action chips floating over the bottom of the text, with see-through gaps, and a fade from
+/// clear to white behind them: the floating overlay band of an LLM chat.
+final class FloatingChips: NSView {
+    override var isOpaque: Bool { false }
+    override func draw(_ dirty: NSRect) {
+        let fade = NSGradient(starting: NSColor.white.withAlphaComponent(0), ending: NSColor.white.withAlphaComponent(0.9))
+        fade?.draw(in: bounds, angle: -90)
+        NSColor(red: 0.88, green: 0.91, blue: 0.98, alpha: 1).setFill()
+        for x in stride(from: 150.0, to: bounds.width - 70, by: 90) {
+            NSBezierPath(roundedRect: NSRect(x: x, y: 6, width: 64, height: 22), xRadius: 11, yRadius: 11).fill()
+        }
+    }
+}
+
 /// An offscreen window holding a real NSScrollView, with an optional toolbar above it and an
 /// input box below it. It renders itself into pixel buffers and scrolls when asked.
 @MainActor
@@ -58,7 +72,12 @@ final class OffscreenScrollWindow: CaptureDriver {
     var isCancelled: Bool { false }
     var now: Double { clock }
 
-    init(width: CGFloat = 420, height: CGFloat = 520, rows: Int = 4000, header: CGFloat = 0, footer: CGFloat = 0, scale: Int = 1, start: CGFloat = 0) {
+    /// Each scroll request moves this many times further (momentum).
+    var overshoot: CGFloat = 1
+    let chips: FloatingChips?
+
+    init(width: CGFloat = 420, height: CGFloat = 520, rows: Int = 4000, header: CGFloat = 0, footer: CGFloat = 0, scale: Int = 1, start: CGFloat = 0,
+         chips: CGFloat = 0) {
         self.scale = scale
         _ = NSApplication.shared
         let frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -76,6 +95,13 @@ final class OffscreenScrollWindow: CaptureDriver {
         self.footer = footer > 0 ? Bar(color: NSColor(red: 0.08, green: 0.09, blue: 0.11, alpha: 1), label: "Message input box") : nil
         if let h = self.header { h.frame = NSRect(x: 0, y: height - header, width: width, height: header); container.addSubview(h) }
         if let f = self.footer { f.frame = NSRect(x: 0, y: 0, width: width, height: footer); container.addSubview(f) }
+        if chips > 0 {
+            let c = FloatingChips(frame: NSRect(x: 0, y: footer, width: width, height: chips))
+            container.addSubview(c)
+            self.chips = c
+        } else {
+            self.chips = nil
+        }
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: start))
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
@@ -89,7 +115,8 @@ final class OffscreenScrollWindow: CaptureDriver {
 
     func scroll(pixels: Int) async throws {
         clock += 0.01
-        let points = CGFloat(pixels) / CGFloat(scale)
+        // Momentum lands on whole screen pixels, as real apps do.
+        let points = (CGFloat(pixels) * overshoot).rounded() / CGFloat(scale)
         let y = min(max(0, scrollView.contentView.bounds.origin.y + points), maxScroll)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
         scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -158,5 +185,38 @@ struct OffscreenHarnessTests {
                                         cellWidth: Double(TestPage.cellWidth * c.scale), pixelsPerRow: c.scale)
         #expect(report.isClean)
         #expect(report.first == Int(c.start) && report.last == 2999)
+    }
+}
+
+@Suite("Offscreen harness: chat overlays and overshoot", .serialized)
+@MainActor
+struct OffscreenChatTests {
+    @Test(arguments: [1, 2])
+    func floatingChipsAndFadeOverARealScrollView(scale: Int) async throws {
+        let w = OffscreenScrollWindow(rows: 3000, header: 44, footer: 60, scale: scale, chips: 34)
+        let r = try await CaptureSession(driver: w).run()
+        #expect(r.reason == .bottom)
+        #expect(r.footer >= (60 + 34) * scale)
+        // Everything above the final overlay band is the document, pixel for pixel: no chip or fade in it.
+        let contentEnd = r.image.height - r.footer
+        let ideal = w.fullRender()
+        #expect(firstDifference(r.image.rows(0..<contentEnd), ideal.rows(0..<contentEnd)) == nil)
+        let v = BarcodeCheck.verdict(for: r.image, rows: r.header..<contentEnd)
+        #expect(v?.passed == true)
+        #expect(v?.report.first == 0)
+    }
+
+    @Test(arguments: [2.5, 3.5])
+    func overshootingRealScrollViewIsComplete(factor: Double) async throws {
+        let w = OffscreenScrollWindow(rows: 5000, header: 44, footer: 60)
+        w.overshoot = CGFloat(factor)
+        var o = CaptureOptions()
+        o.cautiousStartFraction = 0.3
+        o.maxSeconds = 600
+        let r = try await CaptureSession(driver: w, options: o).run()
+        #expect(r.reason == .bottom)
+        #expect(firstDifference(r.image, w.fullRender()) == nil)
+        let rep = BarcodeReport.read(r.image, originX: Double(TestPage.barcodeX), cellWidth: Double(TestPage.cellWidth))
+        #expect(rep.isClean && rep.first == 0 && rep.last == 4999)
     }
 }

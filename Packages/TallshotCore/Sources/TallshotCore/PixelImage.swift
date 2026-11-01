@@ -105,3 +105,14 @@ func memcmpEqual(_ a: UnsafePointer<UInt32>, _ b: UnsafePointer<UInt32>, count: 
 func byteSum(_ p: UInt32) -> Int {
     Int(p & 0xFF) + Int((p >> 8) & 0xFF) + Int((p >> 16) & 0xFF) + Int(p >> 24)
 }
+
+public extension PixelImage {
+    /// A copy of a band of columns (used to crop a fallback capture to what moved).
+    func columns(_ range: Range<Int>) -> PixelImage {
+        precondition(range.lowerBound >= 0 && range.upperBound <= width && !range.isEmpty)
+        var out: [UInt32] = []
+        out.reserveCapacity(range.count * height)
+        for y in 0..<height { out.append(contentsOf: pixels[(y * width + range.lowerBound)..<(y * width + range.upperBound)]) }
+        return PixelImage(width: range.count, height: height, pixels: out)
+    }
+}

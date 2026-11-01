@@ -76,25 +76,41 @@ final class AppModel: ObservableObject {
         guard !isCapturing else { return }
         guard Permissions.allGranted else { WindowRouter.shared.showSetup(); return }
         let pointer = TargetFinder.pointerLocation()
-        guard let target = TargetFinder.find(at: pointer) else {
-            Toast.show(message: "Nothing to capture here.", detail: "Point at a window and try again.")
-            return
-        }
+        // Pointing at the self-test page and pressing the hotkey runs the self-test the real way.
+        if SelfTest.shared.contains(pointer) { SelfTest.shared.runFromHotkey(); return }
         isCapturing = true
         Task {
             defer { isCapturing = false }
+            guard let (target, axSwitch) = await TargetFinder.find(at: pointer) else {
+                Toast.show(message: "Nothing to capture here.", detail: "Point at a window and try again.")
+                return
+            }
+            defer { axSwitch?.restore() }
+            let date = Date()
             do {
                 let (result, capturer) = try await Self.run(target: target, options: settings.captureOptions(fromTop: fromTop))
-                deliver(result, capturer: capturer, region: target.region)
+                deliver(result, capturer: capturer, target: target, date: date)
             } catch {
                 Toast.show(message: "Capture failed.", detail: error.localizedDescription, near: target.region)
             }
         }
     }
 
-    /// The capture itself, shared with the self-test. Frames stay in memory only.
-    static func run(target: CaptureTarget, options: CaptureOptions) async throws -> (CaptureResult, WindowCapturer) {
+    /// The capture itself, shared with the self-test. Frames stay in memory only (and, only
+    /// when the diagnostics setting is on, in the report of a capture that stopped early).
+    static func run(target: CaptureTarget, options: CaptureOptions, hotkeyKeyCode: UInt32? = nil) async throws -> (CaptureResult, WindowCapturer) {
         RegionFlash.show(target.region)
+        // The hotkey's keys are often still held: wait (up to 2 s) until they're let go, so they
+        // can't change how the app reads the scroll, and so a held key can't cancel the capture.
+        let key = hotkeyKeyCode ?? Settings.shared.captureHotkey?.keyCode
+        _ = await ModifierKeys.waitUntilReleased(
+            flags: { CGEventSource.flagsState(.combinedSessionState) },
+            otherKeyHeld: { key.map { CGEventSource.keyState(.combinedSessionState, key: CGKeyCode($0)) } ?? false },
+            now: { ProcessInfo.processInfo.systemUptime },
+            sleep: { try? await Task.sleep(for: .milliseconds($0)) })
+        var options = options
+        options.cropToMovingColumns = target.kind != .scrollArea
+        if target.isBrowserLike { options.cautiousStartFraction = 0.3 }
         let capturer = try await WindowCapturer(target: target)
         let driver = LiveDriver(target: target, capturer: capturer)
         driver.begin()
@@ -104,23 +120,35 @@ final class AppModel: ObservableObject {
         return (result, capturer)
     }
 
-    private func deliver(_ result: CaptureResult, capturer: WindowCapturer, region: CGRect) {
-        let outcome = Delivery.deliver(result.image, colorSpace: capturer.colorSpace, scale: capturer.scale, settings: settings)
-        if settings.shutterSound { NSSound(named: "Pop")?.play() }
-        guard settings.showToast || outcome.error != nil || result.reason.isEarly else { return }
-        var detail = outcome.error
-        if detail == nil, result.reason.isEarly { detail = Self.earlyNote(result.reason) }
-        Toast.show(message: Delivery.message(outcome), detail: detail, thumbnail: outcome.thumbnail,
-                   heightBadge: Delivery.pixels(result.image.height), file: outcome.file, near: region)
+    /// The pop-up text for a finished capture: an early stop says so plainly with the reason,
+    /// and a capture of a Tallshot test page gets its barcode verdict.
+    static func popUpText(_ result: CaptureResult, saved: String) -> (message: String, detail: String?) {
+        var lines: [String] = []
+        if result.reason.isEarly { lines.append(result.reason.note) }
+        if result.steps > 0, result.image.height - result.footer > result.header,
+           let v = BarcodeCheck.verdict(for: result.image, rows: result.header..<(result.image.height - result.footer)) {
+            lines.append(v.message)
+        }
+        let message = result.reason.headline.map { "\($0). \(saved)" } ?? saved
+        return (message, lines.isEmpty ? nil : lines.joined(separator: "\n"))
     }
 
-    static func earlyNote(_ r: StopReason) -> String {
-        switch r {
-        case .bottom: ""
-        case .heightCap: "Stopped at the height limit."
-        case .timeCap: "Stopped at the time limit."
-        case .cancelled: "Stopped early. Kept what was captured."
-        case .lostTrack: "Stopped early: the page changed while scrolling."
+    private func deliver(_ result: CaptureResult, capturer: WindowCapturer, target: CaptureTarget, date: Date) {
+        let outcome = Delivery.deliver(result.image, colorSpace: capturer.colorSpace, scale: capturer.scale, settings: settings, date: date)
+        if settings.shutterSound { NSSound(named: "Pop")?.play() }
+        var (message, detail) = Self.popUpText(result, saved: Delivery.message(outcome))
+        if DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics, result: result) {
+            let folder = outcome.file?.deletingLastPathComponent() ?? settings.folderURL
+            let base = outcome.file.map { $0.deletingPathExtension().lastPathComponent } ?? Delivery.baseName(for: date)
+            let saved = DiagnosticsWriter.write(result, target: target, colorSpace: capturer.colorSpace, folder: folder, baseName: base)
+            let note = saved.map { "Diagnostic report saved: \($0.lastPathComponent)" } ?? "Couldn't save the diagnostic report."
+            detail = [detail, note].compactMap { $0 }.joined(separator: "\n")
         }
+        if let e = outcome.error { detail = [e, detail].compactMap { $0 }.joined(separator: "\n") }
+        let hasVerdict = detail?.contains("Barcode check") ?? false
+        guard settings.showToast || outcome.error != nil || result.reason.isEarly || hasVerdict else { return }
+        Toast.show(message: message, detail: detail, thumbnail: outcome.thumbnail,
+                   heightBadge: Delivery.pixels(result.image.height), file: outcome.file, near: target.region,
+                   seconds: result.reason.isEarly || hasVerdict ? 8 : 3)
     }
 }

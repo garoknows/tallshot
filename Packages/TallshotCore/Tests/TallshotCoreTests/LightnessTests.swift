@@ -13,7 +13,7 @@ struct LightnessTests {
         var result: Alignment = .noMovement
         for _ in 0..<5 { result = FrameAligner().align(a, b, expected: 1440) }
         let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6 / 5
-        #expect(result == .moved(PairLayout(header: 0, footer: 0, offset: 1437, score: 1)))
+        if case .moved(let l) = result { #expect(l.offset == 1437 && l.header == 0 && l.footer == 0 && l.score == 1) } else { Issue.record("expected a move") }
         #if DEBUG
         let budget = 2_000.0   // unoptimized builds are ~10x slower; the app ships optimized
         #else

@@ -80,6 +80,12 @@ struct SettingsView: View {
             }
             Text("Very long pages that keep loading more stop at these limits.")
                 .font(.caption).foregroundStyle(.secondary).padding(.leading, 132)
+            Divider()
+            row("Diagnostics") {
+                Toggle("Keep a diagnostic report when a capture stops early", isOn: $settings.keepDiagnostics)
+            }
+            Text("Saves a folder next to the capture with its frames and a log of each scroll step, so you can share one folder instead of a screen recording. Stays on this Mac; nothing is sent anywhere. Off by default.")
+                .font(.caption).foregroundStyle(.secondary).padding(.leading, 132).fixedSize(horizontal: false, vertical: true)
         }
     }
 

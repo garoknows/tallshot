@@ -22,6 +22,8 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 - **It starts where you are.** To get the whole thing, use **Capture from Top** in the menu (you can give it its own hotkey in Settings).
 - **Stop any time:** press Esc, or touch the mouse or keyboard. Tallshot keeps what it captured so far.
 - **Very long pages** stop at 30,000 pixels or 60 seconds (both adjustable).
+- **Browsers and chat apps.** In Chrome, Arc, Safari and Electron apps Tallshot finds the pane you point at, leaves out the browser's toolbar and the app's sidebar, and handles the floating buttons and message box of chat apps. **Capture from Top** waits for older messages to load, so you can export a whole chat.
+- **It measures every step.** If an app scrolls further than asked, Tallshot asks for less and walks back until the pictures overlap again. If a capture stops early, the pop-up says so and why.
 
 <p align="center"><img src="docs/images/menu.png" width="420" alt="The Tallshot menu: Capture Now, Capture from Top, Settings, Run Self-Test, Quit"></p>
 
@@ -51,7 +53,9 @@ Tallshot asks for two permissions the first time it opens, with a window that sh
 
 <p align="center"><img src="docs/images/setup-window.png" width="640" alt="Setup window: step 1 Screen Recording, step 2 Accessibility, each with a picture of System Settings marked with red boxes and numbers"></p>
 
-When both steps are green, click **Run Self-Test**. Tallshot opens a test page and captures it for real, then checks that every one of its 2,400 numbered rows came out once, in order.
+When both steps are green, click **Run Self-Test**. Tallshot opens a test page and captures it for real, then checks that every one of its 2,400 numbered rows came out once, in order. You can also point at the test page and press the hotkey.
+
+To test a browser, open the [chat test page](https://garoknows.github.io/tallshot/test/chat/), point at the chat and press the hotkey. Its rows are barcoded too, so the pop-up says whether the capture came out right.
 
 ## Privacy
 
@@ -62,6 +66,7 @@ Tallshot can see the screen and send scroll events, so these rules matter. Each 
 - **Captures only when you ask.** Nothing runs in the background. The screen is read only between the hotkey and the end of that capture.
 - **Protected windows stay protected.** Windows macOS marks as private are left as macOS returns them.
 - **No analytics, no crash reporting, no account.** Settings are the only thing stored.
+- **Diagnostics only if you ask.** An optional setting (off by default) saves a report folder next to a capture that stopped early, for you to share if you want. Nothing is ever sent.
 
 ## Build and test
 

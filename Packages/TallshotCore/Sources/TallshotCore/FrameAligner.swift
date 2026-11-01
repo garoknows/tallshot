@@ -21,9 +21,17 @@ public struct PairLayout: Equatable, Sendable {
     public var sidebars: [Sidebar]
     /// Share of the overlapping, informative rows that matched pixel for pixel (0...1).
     public var score: Double
+    /// How many of the `footer` rows are a floating overlay band (chips, a fade, a message box
+    /// with see-through margins) rather than rows that stayed exactly the same. 0 when none.
+    public var overlayBand: Int
+    /// The columns whose pixels changed between the frames (left edge of the first moving
+    /// column to the right edge of the last). A fallback capture is cropped to these.
+    public var movingColumns: Range<Int>?
 
-    public init(header: Int, footer: Int, offset: Int, sidebars: [Sidebar] = [], score: Double = 1) {
+    public init(header: Int, footer: Int, offset: Int, sidebars: [Sidebar] = [], score: Double = 1,
+                overlayBand: Int = 0, movingColumns: Range<Int>? = nil) {
         self.header = header; self.footer = footer; self.offset = offset; self.sidebars = sidebars; self.score = score
+        self.overlayBand = overlayBand; self.movingColumns = movingColumns
     }
 }
 
@@ -52,6 +60,9 @@ public struct AlignmentParameters: Sendable {
     /// The rightmost sliver (this share of the width, 8 to 36 px) is left out of all matching,
     /// because overlay scroll bars show their knob there, at a different height in every frame.
     public var scrollerBandFraction = 0.025
+    /// A floating overlay band at the bottom of the moving area (chips over the text, a fade,
+    /// a message box with see-through margins) may be up to this share of the frame height.
+    public var maxOverlayBandFraction = 0.4
 
     public init() {}
 }
@@ -67,6 +78,10 @@ public struct AlignmentParameters: Sendable {
 /// 4. The best-voted offsets are checked pixel for pixel. If none matches well enough, offsets
 ///    near the requested scroll distance are tried using coarse brightness profiles, and
 ///    again confirmed pixel for pixel. A weak match is reported as `.uncertain`, never used.
+/// 5. Floating overlays: chat apps float chips, a fade and a message box over the bottom of the
+///    text, with see-through gaps. Those rows are neither fixed nor moving, so they never line
+///    up. If the rows that fail sit together at the bottom of the overlap, they are treated as
+///    an overlay band: left out of the match, and stitched once, from the last frame, like a footer.
 public struct FrameAligner: Sendable {
     public var parameters: AlignmentParameters
 
@@ -119,7 +134,6 @@ public struct FrameAligner: Sendable {
         for x in (W - band)..<W { fixed[x] = true }   // never match on the scroll bar sliver
         let moving = ranges(of: fixed, value: false)
         if moving.isEmpty { return .noMovement }
-        let sidebars = findSidebars(fixed: fixed, frame: a, rows: header..<(H - footer))
 
         // 3. Fingerprints of the moving band.
         let ha = (0..<M).map { rowHash(a, header + $0, moving) }
@@ -185,8 +199,73 @@ public struct FrameAligner: Sendable {
             }
         }
 
+        // 5. A floating overlay band at the bottom: trim the failing rows there and score the rest.
+        func rowMatches(_ y: Int, _ d: Int) -> Bool {
+            hb[y] == ha[y + d] && b.rowEquals(header + y, a, header + y + d, columns: moving)
+        }
+        let maxBand = Int(Double(H) * parameters.maxOverlayBandFraction)
+        func bandScore(_ d: Int) -> (s: Double, n: Int, band: Int)? {
+            let overlap = M - d
+            guard overlap > parameters.minOverlapRows else { return nil }
+            // Old-frame row y + d lies in the bottom `maxBand` rows of the moving area from here on.
+            let zoneStart = max(0, M - maxBand - d)
+            var cut = overlap
+            for y in zoneStart..<overlap where !rowMatches(y, d) { cut = y; break }
+            guard cut < overlap else { return nil }
+            // Plain rows just above the first failure tell nothing (a fade over blank space looks
+            // blank either way), so the band starts above them, at the last row with detail.
+            while cut > 0 && !informative[cut - 1] { cut -= 1 }
+            let band = M - (cut + d)
+            guard cut >= parameters.minOverlapRows, M - band >= minMiddle else { return nil }
+            var matched = 0, counted = 0
+            for y in 0..<cut where informative[y] {
+                counted += 1
+                if rowMatches(y, d) { matched += 1 }
+            }
+            guard counted >= parameters.minInformativeRows else { return nil }
+            return (Double(matched) / Double(counted), counted, band)
+        }
+        var banded: (d: Int, s: Double, n: Int, band: Int)? = nil
+        var bandCandidates = candidates
+        if let d = best?.d { bandCandidates.insert(d, at: 0) }
+        if (best?.s ?? 0) < parameters.confidence, let e = expected, e > 0 {
+            // Near the requested distance too, in case the votes were drowned out by the band.
+            let lo = max(1, Int(Double(e) * (1 - parameters.searchWindow)))
+            let hi = min(maxOffset, Int((Double(e) * (1 + parameters.searchWindow)).rounded(.up)))
+            if lo <= hi { bandCandidates += Array(lo...hi).filter { votes[$0] > 0 && !bandCandidates.contains($0) } }
+        }
+        for d in bandCandidates {
+            guard let r = bandScore(d), r.s >= parameters.confidence else { continue }
+            if let cur = banded {
+                let better = r.s > cur.s + 0.0005 || (abs(r.s - cur.s) <= 0.0005 && r.band < cur.band)
+                if !better { continue }
+            }
+            banded = (d, r.s, r.n, r.band)
+        }
+        // What moved, widened over neighbouring columns that are one plain color all the way
+        // down (a margin, the edge of a barcode, a divider line), stopping at anything with detail
+        // (a sidebar's items). Cropping a fallback capture to this keeps the whole column.
+        var lo = moving.first!.lowerBound, hi = moving.last!.upperBound
+        func plainColumn(_ x: Int) -> Bool {
+            let v = a[x, header]
+            for y in header..<(H - footer) where a[x, y] != v || b[x, y] != v { return false }
+            return true
+        }
+        while lo > 0 && plainColumn(lo - 1) { lo -= 1 }
+        while hi < W && plainColumn(hi) { hi += 1 }
+        let span = lo..<hi
+        // Prefer the band whenever it explains failing rows at the bottom: those rows hold a
+        // floating overlay, and stitching them as content would repeat it on every strip.
+        if let banded, banded.s > (best?.s ?? 0) || (best.map { $0.d == banded.d && $0.s < 1 } ?? true) {
+            // Sidebars are judged only on rows above the band (a message box is not a sidebar).
+            let sidebars = findSidebars(fixed: fixed, frame: a, rows: header..<(H - footer - banded.band))
+            return .moved(PairLayout(header: header, footer: footer + banded.band, offset: banded.d, sidebars: sidebars,
+                                     score: banded.s, overlayBand: banded.band, movingColumns: span))
+        }
         guard let best, best.s >= parameters.confidence else { return .uncertain(bestScore: best?.s ?? 0) }
-        return .moved(PairLayout(header: header, footer: footer, offset: best.d, sidebars: sidebars, score: best.s))
+        let sidebars = findSidebars(fixed: fixed, frame: a, rows: header..<(H - footer))
+        return .moved(PairLayout(header: header, footer: footer, offset: best.d, sidebars: sidebars, score: best.s,
+                                 movingColumns: span))
     }
 
     // MARK: Helpers

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tallshot chat test</title>
+<meta name="description" content="A pretend chat page with barcoded rows for testing Tallshot's scrolling capture.">
+<meta name="robots" content="noindex">
+<style>
+  :root {
+    --paper: #ffffff; --ink: #1d2027; --muted: #6a6f7b; --line: #e6e7eb;
+    --side: #f4f3ef; --user: #f1f3f8; --accent: #2f6bff; --chip: #e3e9fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  body { display: flex; }
+  /* The app's sidebar: should be left out of a capture of the chat column. */
+  aside { width: 260px; flex: none; background: var(--side); border-right: 1px solid var(--line); padding: 16px 12px; overflow: hidden; }
+  aside h1 { font-size: 15px; margin: 4px 8px 14px; }
+  aside a { display: block; padding: 7px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; font-size: 14px; }
+  aside a.on { background: #e8e6df; font-weight: 600; }
+  aside .label { margin: 18px 10px 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  aside .help { margin: 18px 10px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+  main { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
+  /* Sticky header: should appear once, at the top. */
+  header { flex: none; height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 20px;
+    border-bottom: 1px solid var(--line); font-weight: 600; background: var(--paper); }
+  header small { font-weight: 400; color: var(--muted); }
+  /* The inner scrolling chat column (the page itself doesn't scroll). */
+  #chat { flex: 1; overflow-y: auto; overflow-anchor: none; padding: 0 0 230px; }
+  #column { max-width: 760px; margin: 0 auto; }
+  #loading { height: 0; overflow: hidden; text-align: center; color: var(--muted); font-size: 13px; }
+  #loading.on { height: 36px; padding-top: 8px; }
+  .msg { display: flex; overflow: hidden; }
+  .msg canvas { flex: none; display: block; }
+  .msg .body { flex: 1; min-width: 0; padding: 14px 18px 0 6px; overflow: hidden; }
+  .msg.user .body { background: var(--user); border-radius: 14px; margin: 8px 0 8px 120px; padding-top: 10px; }
+  .msg .who { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
+  .msg p { margin: 0 0 8px; }
+  /* Floating overlays over the bottom of the text, with see-through gaps. */
+  .fade { position: absolute; left: 0; right: 14px; bottom: 150px; height: 70px; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,.95)); }
+  .chips { position: absolute; left: 0; right: 0; bottom: 112px; display: flex; justify-content: center; gap: 28px; pointer-events: none; }
+  .chips span { background: var(--chip); color: #30436e; border-radius: 999px; padding: 5px 14px; font-size: 13px; pointer-events: auto; }
+  .composer { position: absolute; left: 50%; transform: translateX(-50%); bottom: 18px; width: min(720px, calc(100% - 40px));
+    height: 82px; border: 1px solid #d5d8df; border-radius: 18px; background: #fff; box-shadow: 0 4px 18px rgba(0,0,0,.06);
+    padding: 12px 16px; color: var(--muted); }
+  .composer .send { position: absolute; right: 12px; bottom: 12px; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); }
+  @media (max-width: 700px) { aside { display: none; } .msg.user .body { margin-left: 40px; } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Tallshot chat test</h1>
+  <a id="v-plain" href="./">Long chat</a>
+  <a id="v-older" href="./?older">Loads older messages at the top</a>
+  <div class="label">Earlier</div>
+  <a href="#" onclick="return false">Weekend trip packing list</a>
+  <a href="#" onclick="return false">Explain binary search</a>
+  <a href="#" onclick="return false">Rewrite the intro paragraph</a>
+  <a href="#" onclick="return false">Soup recipe for four</a>
+  <a href="#" onclick="return false">Compare two laptops</a>
+  <p class="help">Point at the chat and press the Tallshot hotkey. Every row of the chat carries a barcode, so Tallshot can check its own result: the pop-up says <b>Barcode check passed</b>, or what went wrong. Then try <b>Capture from Top</b>.</p>
+</aside>
+<main>
+  <header>Test chat <small id="sub">60 messages</small></header>
+  <div id="chat"><div id="column"><div id="loading">Loading older messages…</div><div id="list"></div></div></div>
+  <div class="fade"></div>
+  <div class="chips"><span>Copy</span><span>Retry</span><span>Share</span></div>
+  <div class="composer">Message the assistant…<div class="send"></div></div>
+</main>
+<script>
+// Barcodes in the same format as Tallshot's self-test: guard cells (dark, light), 18 bits of
+// row number, 6 check bits; cells 4 CSS pixels wide, starting 4 pixels in. One CSS pixel row
+// per row number, so the whole chat is numbered top to bottom with no gaps.
+const CELL = 4, X0 = 4, BAR_W = X0 + 26 * CELL + 4;
+function checksum(i) { return (i * 37 + 11 + (i >> 6) * 5) & 63; }
+function cells(i) {
+  const out = [1, 0];
+  for (let b = 17; b >= 0; b--) out.push((i >> b) & 1);
+  const c = checksum(i);
+  for (let b = 5; b >= 0; b--) out.push((c >> b) & 1);
+  return out;
+}
+
+// A fixed, made-up conversation: same text and heights every time.
+function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const words = ("the a plan step list idea check note result first next then also because simple quick small "
+  + "page column window scroll line box chip test value number order example answer question part shows "
+  + "keeps moves stays clear short long left right top bottom middle again careful better").split(" ");
+const OLDER = new URLSearchParams(location.search).has("older");
+const TOTAL = OLDER ? 120 : 60, START_LOADED = OLDER ? 40 : 60, LOAD_STEP = 20;
+const messages = [];
+let base = 0;
+for (let i = 0; i < TOTAL; i++) {
+  const r = rng(i * 7919 + 13);
+  const user = i % 2 === 0;
+  const height = user ? 70 + Math.floor(r() * 50) : 150 + Math.floor(r() * 190);
+  const paras = [];
+  const nP = user ? 1 : 1 + Math.floor(r() * 3);
+  for (let p = 0; p < nP; p++) {
+    const n = 10 + Math.floor(r() * 30), w = [];
+    for (let k = 0; k < n; k++) w.push(words[Math.floor(r() * words.length)]);
+    w[0] = w[0][0].toUpperCase() + w[0].slice(1);
+    paras.push(w.join(" ") + ".");
+  }
+  messages.push({ i, user, height, paras, base });
+  base += height;
+}
+
+function render(m) {
+  const row = document.createElement("div");
+  row.className = "msg" + (m.user ? " user" : "");
+  row.style.height = m.height + "px";
+  const cv = document.createElement("canvas");
+  cv.style.width = BAR_W + "px"; cv.style.height = m.height + "px";
+  cv.dataset.base = m.base;
+  row.appendChild(cv);
+  const body = document.createElement("div");
+  body.className = "body";
+  body.innerHTML = `<div class="who">${m.user ? "You" : "Assistant"} · message ${m.i + 1}</div>` + m.paras.map(p => `<p>${p}</p>`).join("");
+  row.appendChild(body);
+  draw(cv);
+  return row;
+}
+
+function draw(cv) {
+  const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+  const h = parseInt(cv.style.height), w = BAR_W, b = +cv.dataset.base;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = "#000";
+  for (let y = 0; y < h; y++) {
+    const c = cells(b + y);
+    for (let k = 0; k < c.length; k++) if (c[k]) ctx.fillRect((X0 + k * CELL) * dpr, y * dpr, CELL * dpr, dpr);
+  }
+}
+
+const list = document.getElementById("list"), chat = document.getElementById("chat"), loading = document.getElementById("loading");
+let first = TOTAL - START_LOADED;
+for (let i = first; i < TOTAL; i++) list.appendChild(render(messages[i]));
+document.getElementById(OLDER ? "v-older" : "v-plain").classList.add("on");
+const sub = () => document.getElementById("sub").textContent =
+  `${TOTAL - first} of ${TOTAL} messages${first > 0 ? " loaded (scroll to the top for more)" : ""}`;
+sub();
+chat.scrollTop = chat.scrollHeight;   // chats open at the newest message
+
+// The "older messages" variant: near the top, show a spinner, then add 20 older messages
+// above and keep the view where it was (like a real chat app).
+let busy = false;
+chat.addEventListener("scroll", () => {
+  if (!OLDER || busy || first === 0 || chat.scrollTop > 300) return;
+  busy = true;
+  loading.classList.add("on");
+  setTimeout(() => {
+    const before = chat.scrollHeight;
+    const frag = document.createDocumentFragment();
+    const from = Math.max(0, first - LOAD_STEP);
+    for (let i = from; i < first; i++) frag.appendChild(render(messages[i]));
+    list.insertBefore(frag, list.firstChild);
+    first = from;
+    loading.classList.remove("on");
+    chat.scrollTop += chat.scrollHeight - before;
+    sub();
+    busy = false;
+  }, 700);
+});
+matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener?.("change", () => document.querySelectorAll("canvas").forEach(draw));
+window.addEventListener("resize", () => document.querySelectorAll("canvas").forEach(draw));
+</script>
+</body>
+</html>
