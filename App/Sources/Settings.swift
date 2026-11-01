@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import TallshotCore
+import TallshotExport
 
 /// A key plus modifiers, stored as Carbon codes (what RegisterEventHotKey wants).
 struct Hotkey: Codable, Equatable {
@@ -49,6 +50,12 @@ struct Hotkey: Codable, Equatable {
     init(keyCode: UInt32, modifiers: UInt32) { self.keyCode = keyCode; self.modifiers = modifiers }
 }
 
+enum CopyAs: String, CaseIterable, Identifiable {
+    case image, text
+    var id: String { rawValue }
+    var title: String { self == .image ? "Image" : "Text (Markdown)" }
+}
+
 /// How carefully to scroll: a trade between speed and robustness on slow pages.
 enum ScrollSpeed: String, CaseIterable, Identifiable {
     case careful, normal, fast
@@ -70,6 +77,8 @@ final class Settings: ObservableObject {
         static let copy = "copyToClipboard", save = "saveToFolder", toast = "showToast", sound = "shutterSound"
         static let speed = "scrollSpeed", maxHeight = "maxHeight", maxSeconds = "maxSeconds", setupShown = "setupShown"
         static let diagnostics = "keepDiagnostics"
+        static let captureMode = "captureMode", savePDF = "savePDF", saveDOCX = "saveDOCX", saveMD = "saveMarkdown"
+        static let copyAs = "copyAs", pageSize = "pdfPageSize", wordImage = "wordIncludesImage"
     }
 
     @Published var captureHotkey: Hotkey? { didSet { store(captureHotkey, Keys.captureHotkey) } }
@@ -86,10 +95,26 @@ final class Settings: ObservableObject {
     @Published var setupShown: Bool { didSet { d.set(setupShown, forKey: Keys.setupShown) } }
     /// Off by default. When on, a capture that stops early leaves a diagnostic folder next to it.
     @Published var keepDiagnostics: Bool { didSet { d.set(keepDiagnostics, forKey: Keys.diagnostics) } }
+    /// Pane under the pointer (default) or the whole window.
+    @Published var captureMode: CaptureMode { didSet { d.set(captureMode.rawValue, forKey: Keys.captureMode) } }
+    /// "Also save as": PNG is `saveToFolder`; these are off by default.
+    @Published var savePDF: Bool { didSet { d.set(savePDF, forKey: Keys.savePDF) } }
+    @Published var saveDOCX: Bool { didSet { d.set(saveDOCX, forKey: Keys.saveDOCX) } }
+    @Published var saveMarkdown: Bool { didSet { d.set(saveMarkdown, forKey: Keys.saveMD) } }
+    /// What goes on the clipboard: the image (default) or the text as Markdown.
+    @Published var copyAs: CopyAs { didSet { d.set(copyAs.rawValue, forKey: Keys.copyAs) } }
+    @Published var pdfPageSize: PageSize { didSet { d.set(pdfPageSize.rawValue, forKey: Keys.pageSize) } }
+    @Published var wordIncludesImage: Bool { didSet { d.set(wordIncludesImage, forKey: Keys.wordImage) } }
+
+    /// Whether any export needs the words of the capture.
+    var needsText: Bool { saveDOCX || saveMarkdown || (copyToClipboard && copyAs == .text) }
+    var savesAnything: Bool { saveToFolder || savePDF || saveDOCX || saveMarkdown }
 
     private init() {
         d.register(defaults: [Keys.copy: true, Keys.save: true, Keys.toast: true, Keys.sound: false,
-                              Keys.speed: ScrollSpeed.normal.rawValue, Keys.maxHeight: 30_000, Keys.maxSeconds: 60, Keys.diagnostics: false])
+                              Keys.speed: ScrollSpeed.normal.rawValue, Keys.maxHeight: 30_000, Keys.maxSeconds: 60, Keys.diagnostics: false,
+                              Keys.captureMode: CaptureMode.pane.rawValue, Keys.savePDF: false, Keys.saveDOCX: false, Keys.saveMD: false,
+                              Keys.copyAs: CopyAs.image.rawValue, Keys.pageSize: PageSize.letter.rawValue, Keys.wordImage: false])
         captureHotkey = d.object(forKey: Keys.captureHotkey) == nil ? .defaultCapture : Self.load(d, Keys.captureHotkey)
         fromTopHotkey = Self.load(d, Keys.fromTopHotkey)
         saveFolder = d.string(forKey: Keys.saveFolder).map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -102,6 +127,13 @@ final class Settings: ObservableObject {
         maxSeconds = d.integer(forKey: Keys.maxSeconds)
         setupShown = d.bool(forKey: Keys.setupShown)
         keepDiagnostics = d.bool(forKey: Keys.diagnostics)
+        captureMode = CaptureMode(rawValue: d.string(forKey: Keys.captureMode) ?? "") ?? .pane
+        savePDF = d.bool(forKey: Keys.savePDF)
+        saveDOCX = d.bool(forKey: Keys.saveDOCX)
+        saveMarkdown = d.bool(forKey: Keys.saveMD)
+        copyAs = CopyAs(rawValue: d.string(forKey: Keys.copyAs) ?? "") ?? .image
+        pdfPageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .letter
+        wordIncludesImage = d.bool(forKey: Keys.wordImage)
     }
 
     /// A hotkey is stored as Data; "none" is stored as empty Data so it isn't reset to the default.

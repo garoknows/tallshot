@@ -127,6 +127,10 @@ final class LiveDriver: CaptureDriver {
     private let savedPointer: CGPoint
     private(set) var method = ScrollMethod.gesture
     private let mover: ScrollBarMover?
+    /// Reads the pane's text at each step, when an export needs it.
+    var collector: TextCollector?
+
+    func contentSettled() { collector?.snapshot() }
 
     init(target: CaptureTarget, capturer: WindowCapturer) {
         self.target = target

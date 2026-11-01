@@ -3,6 +3,7 @@ import ApplicationServices
 import ServiceManagement
 import SwiftUI
 import TallshotCore
+import TallshotExport
 
 /// The two permissions Tallshot needs.
 enum Permissions {
@@ -39,15 +40,37 @@ final class AppModel: ObservableObject {
         if !Permissions.allGranted || !settings.setupShown { WindowRouter.shared.showSetup() }
     }
 
-    func registerHotkeys() {
-        var problems: [String] = []
-        if !HotKeys.shared.set(1, settings.captureHotkey, action: { [weak self] in self?.capture(fromTop: false) }) {
-            problems.append(settings.captureHotkey?.display ?? "")
+    /// Warnings shown right under each hotkey field (slot 1: capture, slot 2: from top).
+    @Published var hotkeyWarnings: [UInt32: String] = [:]
+
+    @discardableResult
+    func registerHotkeys() -> [UInt32: Bool] {
+        var ok: [UInt32: Bool] = [:]
+        ok[1] = HotKeys.shared.set(1, settings.captureHotkey, action: { [weak self] in self?.capture(fromTop: false) })
+        ok[2] = HotKeys.shared.set(2, settings.fromTopHotkey, action: { [weak self] in self?.capture(fromTop: true) })
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        var warnings: [UInt32: String] = [:]
+        for (slot, key) in [(UInt32(1), settings.captureHotkey), (2, settings.fromTopHotkey)] {
+            guard let key else { continue }
+            if let w = HotkeyConflicts.warning(keyCode: key.keyCode, modifiers: key.modifiers, registered: ok[slot] ?? false,
+                                               systemTaken: SystemShortcuts.uses(key), running: running) {
+                warnings[slot] = w
+            }
         }
-        if !HotKeys.shared.set(2, settings.fromTopHotkey, action: { [weak self] in self?.capture(fromTop: true) }) {
-            problems.append(settings.fromTopHotkey?.display ?? "")
-        }
-        hotkeyProblem = problems.isEmpty ? nil : "Another app already uses \(problems.joined(separator: " and "))."
+        hotkeyWarnings = warnings
+        hotkeyProblem = warnings.isEmpty ? nil : warnings.values.first
+        return ok
+    }
+
+    /// A hotkey was recorded. One macOS refuses is never kept: the old one comes back, and the
+    /// field says why.
+    func hotkeyChanged(slot: UInt32, previous: Hotkey?) {
+        let ok = registerHotkeys()
+        guard ok[slot] == false else { return }
+        let refused = (slot == 1 ? settings.captureHotkey : settings.fromTopHotkey)?.display ?? ""
+        if slot == 1 { settings.captureHotkey = previous } else { settings.fromTopHotkey = previous }
+        registerHotkeys()
+        hotkeyWarnings[slot] = "macOS refused \(refused) (another app has it), so it wasn't kept. Pick a different one."
     }
 
     func setLaunchAtLogin(_ on: Bool) {
@@ -81,15 +104,17 @@ final class AppModel: ObservableObject {
         isCapturing = true
         Task {
             defer { isCapturing = false }
-            guard let (target, axSwitch) = await TargetFinder.find(at: pointer) else {
+            guard let (target, axSwitch) = await TargetFinder.find(at: pointer, mode: settings.captureMode) else {
                 Toast.show(message: "Nothing to capture here.", detail: "Point at a window and try again.")
                 return
             }
             defer { axSwitch?.restore() }
             let date = Date()
             do {
-                let (result, capturer) = try await Self.run(target: target, options: settings.captureOptions(fromTop: fromTop))
-                deliver(result, capturer: capturer, target: target, date: date)
+                let run = try await Self.run(target: target, options: settings.captureOptions(fromTop: fromTop), collectText: settings.needsText)
+                await deliver(run.result, capturer: run.capturer, target: target, text: run.text, date: date)
+            } catch is CancellationError {
+                Toast.show(message: "Cancelled.", detail: "Nothing was saved or copied.", near: target.region)
             } catch {
                 Toast.show(message: "Capture failed.", detail: error.localizedDescription, near: target.region)
             }
@@ -98,8 +123,17 @@ final class AppModel: ObservableObject {
 
     /// The capture itself, shared with the self-test. Frames stay in memory only (and, only
     /// when the diagnostics setting is on, in the report of a capture that stopped early).
-    static func run(target: CaptureTarget, options: CaptureOptions, hotkeyKeyCode: UInt32? = nil) async throws -> (CaptureResult, WindowCapturer) {
-        RegionFlash.show(target.region)
+    struct Run {
+        var result: CaptureResult
+        var capturer: WindowCapturer
+        /// The pane's text from the accessibility tree, when it was collected.
+        var text: ExportDocument?
+    }
+
+    static func run(target: CaptureTarget, options: CaptureOptions, hotkeyKeyCode: UInt32? = nil, collectText: Bool = false) async throws -> Run {
+        // The flash shows exactly the pane that will be captured, before anything scrolls.
+        // Esc (or any key, click or mouse move) while it shows cancels with nothing saved.
+        RegionFlash.show(target.region, seconds: 0.7)
         // The hotkey's keys are often still held: wait (up to 2 s) until they're let go, so they
         // can't change how the app reads the scroll, and so a held key can't cancel the capture.
         let key = hotkeyKeyCode ?? Settings.shared.captureHotkey?.keyCode
@@ -109,15 +143,17 @@ final class AppModel: ObservableObject {
             now: { ProcessInfo.processInfo.systemUptime },
             sleep: { try? await Task.sleep(for: .milliseconds($0)) })
         var options = options
-        options.cropToMovingColumns = target.kind != .scrollArea
+        options.cropToMovingColumns = target.cropToMovement
         if target.isBrowserLike { options.cautiousStartFraction = 0.3 }
         let capturer = try await WindowCapturer(target: target)
         let driver = LiveDriver(target: target, capturer: capturer)
+        if collectText, let root = target.textRoot { driver.collector = TextCollector(root: root, region: target.region) }
         driver.begin()
         defer { driver.end() }
-        try await Task.sleep(for: .milliseconds(320))   // let the flash fade before the first picture
+        try await Task.sleep(for: .milliseconds(560))   // the flash, then let it fade before the first picture
+        if driver.isCancelled { throw CancellationError() }
         let result = try await CaptureSession(driver: driver, options: options).run()
-        return (result, capturer)
+        return Run(result: result, capturer: capturer, text: driver.collector?.document)
     }
 
     /// The pop-up text for a finished capture: an early stop says so plainly with the reason,
@@ -133,10 +169,17 @@ final class AppModel: ObservableObject {
         return (message, lines.isEmpty ? nil : lines.joined(separator: "\n"))
     }
 
-    private func deliver(_ result: CaptureResult, capturer: WindowCapturer, target: CaptureTarget, date: Date) {
-        let outcome = Delivery.deliver(result.image, colorSpace: capturer.colorSpace, scale: capturer.scale, settings: settings, date: date)
+    private func deliver(_ result: CaptureResult, capturer: WindowCapturer, target: CaptureTarget, text: ExportDocument?, date: Date) async {
+        let slow = settings.savePDF || settings.saveDOCX || settings.saveMarkdown || settings.needsText
+        if slow { Toast.show(message: "Making the files…", detail: settings.savePDF ? "Reading the text for the PDF on this Mac." : nil, near: target.region, seconds: 30) }
+        let outcome = await Delivery.deliver(result.image, colorSpace: capturer.colorSpace, settings: settings, accessibilityText: text, date: date)
         if settings.shutterSound { NSSound(named: "Pop")?.play() }
         var (message, detail) = Self.popUpText(result, saved: Delivery.message(outcome))
+        var extra: [String] = []
+        if let line = Delivery.exportsLine(outcome) { extra.append(line) }
+        if let src = outcome.textSource, settings.needsText { extra.append(src.note) }
+        extra += outcome.notes
+        if !extra.isEmpty { detail = ([detail].compactMap { $0 } + extra).joined(separator: "\n") }
         if DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics, result: result) {
             let folder = outcome.file?.deletingLastPathComponent() ?? settings.folderURL
             let base = outcome.file.map { $0.deletingPathExtension().lastPathComponent } ?? Delivery.baseName(for: date)
@@ -146,7 +189,7 @@ final class AppModel: ObservableObject {
         }
         if let e = outcome.error { detail = [e, detail].compactMap { $0 }.joined(separator: "\n") }
         let hasVerdict = detail?.contains("Barcode check") ?? false
-        guard settings.showToast || outcome.error != nil || result.reason.isEarly || hasVerdict else { return }
+        guard settings.showToast || slow || outcome.error != nil || result.reason.isEarly || hasVerdict else { Toast.hide(); return }
         Toast.show(message: message, detail: detail, thumbnail: outcome.thumbnail,
                    heightBadge: Delivery.pixels(result.image.height), file: outcome.file, near: target.region,
                    seconds: result.reason.isEarly || hasVerdict ? 8 : 3)

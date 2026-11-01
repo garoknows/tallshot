@@ -35,3 +35,19 @@ final class HotKeys {
         return false
     }
 }
+
+/// The keyboard shortcuts macOS itself has switched on (System Settings → Keyboard → Keyboard
+/// Shortcuts), read with Carbon's CopySymbolicHotKeys.
+enum SystemShortcuts {
+    static func uses(_ hotkey: Hotkey) -> Bool {
+        var array: Unmanaged<CFArray>?
+        guard CopySymbolicHotKeys(&array) == noErr, let list = array?.takeRetainedValue() as? [[String: Any]] else { return false }
+        let mask = UInt32(cmdKey | shiftKey | optionKey | controlKey)
+        return list.contains { d in
+            guard (d[kHISymbolicHotKeyEnabled as String] as? Bool) ?? false,
+                  let code = (d[kHISymbolicHotKeyCode as String] as? NSNumber)?.uint32Value,
+                  let mods = (d[kHISymbolicHotKeyModifiers as String] as? NSNumber)?.uint32Value else { return false }
+            return code == hotkey.keyCode && (mods & mask) == hotkey.modifiers
+        }
+    }
+}

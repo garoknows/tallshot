@@ -17,11 +17,15 @@ public protocol CaptureDriver: AnyObject {
     func reverseScrollDirection()
     /// Switches to a way of scrolling. Returns false if this target can't scroll that way.
     func setScrollMethod(_ method: ScrollMethod) -> Bool
+    /// Called with the view settled on new content (the first frame, then every step added),
+    /// so the app can read the text that is on screen now.
+    func contentSettled()
 }
 
 public extension CaptureDriver {
     func reverseScrollDirection() {}
     func setScrollMethod(_ method: ScrollMethod) -> Bool { method == .gesture }
+    func contentSettled() {}
 }
 
 public struct CaptureOptions: Sendable, Equatable {
@@ -266,6 +270,7 @@ public final class CaptureSession {
         if options.fromTop { try await scrollToTop(start: start) }
 
         var first = try await settledFrame()
+        driver.contentSettled()
         var stitcher = Stitcher(first: first)
         let H = first.height, W = first.width
         let target = options.stepFraction
@@ -307,6 +312,7 @@ public final class CaptureSession {
             }
             stitcher.add(frame, layout: layout)
             middle = H - layout.header - layout.footer
+            driver.contentSettled()
         }
 
         /// After a step that couldn't be lined up (usually an overshoot: the page flew past),

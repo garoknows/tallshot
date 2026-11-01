@@ -243,16 +243,32 @@ public struct FrameAligner: Sendable {
             banded = (d, r.s, r.n, r.band)
         }
         // What moved, widened over neighbouring columns that are one plain color all the way
-        // down (a margin, the edge of a barcode, a divider line), stopping at anything with detail
-        // (a sidebar's items). Cropping a fallback capture to this keeps the whole column.
+        // down (a margin, the plain edge of the pane's own content), stopping at anything with
+        // detail, at a thin divider line between panes, or after a twelfth of the width.
         var lo = moving.first!.lowerBound, hi = moving.last!.upperBound
-        func plainColumn(_ x: Int) -> Bool {
+        func plain(_ x: Int) -> UInt32? {
             let v = a[x, header]
-            for y in header..<(H - footer) where a[x, y] != v || b[x, y] != v { return false }
-            return true
+            for y in header..<(H - footer) where a[x, y] != v || b[x, y] != v { return nil }
+            return v
         }
-        while lo > 0 && plainColumn(lo - 1) { lo -= 1 }
-        while hi < W && plainColumn(hi) { hi += 1 }
+        let thin = max(2, W / 500), cap = max(48, W / 12)
+        func widen(from start: Int, step: Int) -> Int {
+            var edge = start           // first column outside the span so far
+            var inside: UInt32? = nil  // color of the run just inside (nil: moving content)
+            while edge >= 0 && edge < W && abs(edge - start) < cap, let c = plain(edge) {
+                var far = edge
+                while far + step >= 0 && far + step < W && plain(far + step) == c { far += step }
+                let width = abs(far - edge) + 1
+                let outside = (far + step >= 0 && far + step < W) ? plain(far + step) : nil
+                // A thin line with a different plain color on its far side divides two panes.
+                if width <= thin, let o = outside, o != c, inside != c { break }
+                inside = c
+                edge = far + step
+            }
+            return edge
+        }
+        lo = widen(from: lo - 1, step: -1) + 1
+        hi = widen(from: hi, step: 1)
         let span = lo..<hi
         // Prefer the band whenever it explains failing rows at the bottom: those rows hold a
         // floating overlay, and stitching them as content would repeat it on every strip.

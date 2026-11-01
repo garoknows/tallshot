@@ -73,7 +73,7 @@ struct MenuPicture: View {
     }
 }
 
-/// A drawn tall page for the toast thumbnail (never a real screenshot).
+/// A drawn tall page for the pop-up thumbnail (never a real screenshot).
 @MainActor
 func sampleThumbnail() -> NSImage {
     let page = VStack(alignment: .leading, spacing: 5) {
@@ -112,5 +112,9 @@ struct DocRenderer {
         png(ToastView(message: "Saved and copied.", detail: nil, thumbnail: sampleThumbnail(), heightBadge: "8,412 px", onClick: {})
                 .padding(24).background(Brand.paper).environment(\.colorScheme, .light),
             to: docs.appendingPathComponent("toast.png"))
+        png(ToastView(message: "Saved and copied.", detail: "Also saved PDF, Word and Markdown.\nText from the app's accessibility tree (exact text).",
+                      thumbnail: sampleThumbnail(), heightBadge: "8,412 px", onClick: {})
+                .padding(24).background(Brand.paper).environment(\.colorScheme, .light),
+            to: docs.appendingPathComponent("popup-exports.png"))
     }
 }

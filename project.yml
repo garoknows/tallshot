@@ -13,7 +13,7 @@ configFiles:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.1.1"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "1"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     ENABLE_HARDENED_RUNTIME: YES
@@ -34,6 +34,9 @@ targets:
         buildPhase: resources
     dependencies:
       - package: TallshotCore
+        product: TallshotCore
+      - package: TallshotCore
+        product: TallshotExport
     settings:
       base:
         PRODUCT_NAME: Tallshot
@@ -51,5 +54,6 @@ schemes:
       targets:
         - package: TallshotCore/TallshotCoreTests
         - package: TallshotCore/TallshotHarnessTests
+        - package: TallshotCore/TallshotExportTests
     archive:
       config: Release
