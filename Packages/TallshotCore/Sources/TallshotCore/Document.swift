@@ -145,6 +145,12 @@ public enum LayoutReader {
         guard !lines.isEmpty else { return [] }
         let body = lines.filter { !$0.onShade }.map(\.height).sorted()
         let typical = body.isEmpty ? lines.map(\.height).sorted()[lines.count / 2] : body[body.count / 2]
+        // Letter width is a steadier sign of a bigger font than box height, which changes with
+        // letters like g and y; bold headings are wider still.
+        func charWidth(_ l: TextLine) -> Double { l.width / Double(max(1, l.text.count)) }
+        let widths = lines.filter { !$0.onShade && $0.text.count >= 8 }.map(charWidth).sorted()
+        let typicalWidth = widths.isEmpty ? typical * 0.5 : widths[widths.count / 2]
+        func size(_ l: TextLine) -> Double { max(l.height / typical, l.text.count >= 3 ? charWidth(l) / typicalWidth : 0) }
 
         // Indent levels for bullets: distinct left edges, smallest first.
         var bulletXs: [Double] = []
@@ -170,9 +176,10 @@ public enum LayoutReader {
             defer { lastBottom = l.y + l.height }
             if l.onShade { flushPara(); code.append(l); continue }
             flushCode()
-            if l.height >= typical * 1.3 {
+            let r = size(l)
+            if r >= 1.3 && bullet(l.text) == nil {
                 flushPara()
-                let level = l.height >= typical * 1.9 ? 1 : (l.height >= typical * 1.5 ? 2 : 3)
+                let level = r >= 1.85 ? 1 : (r >= 1.4 ? 2 : 3)
                 out.append(.heading(level: level, [Inline(l.text.trimmingWhitespace)]))
                 continue
             }
