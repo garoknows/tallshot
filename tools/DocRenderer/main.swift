@@ -17,14 +17,31 @@ func png(_ view: some View, scale: CGFloat = 2, to url: URL) {
 
 /// The drawing as SVG, from the same numbers as the app: the site icon, and the white layer of
 /// the Icon Composer file (whose square fills the whole 1024 canvas before macOS insets it).
+/// The lines are written as filled outlines: Icon Composer trims a layer to its shape's bounds
+/// without counting line width, which cuts the outer half of a stroked line off.
 func glyphSVG(scale u: CGFloat, center: CGFloat) -> String {
-    let b = TallGlyph.body, c = TallGlyph.chevron
     let n = { (v: CGFloat) in String(format: "%.3f", v) }
-    let points = c.map { "\(n($0.x)),\(n($0.y))" }.joined(separator: " ")
+    func rounded(_ r: CGRect, _ c: CGFloat) -> String {
+        "M\(n(r.minX + c)) \(n(r.minY))H\(n(r.maxX - c))A\(n(c)) \(n(c)) 0 0 1 \(n(r.maxX)) \(n(r.minY + c))"
+            + "V\(n(r.maxY - c))A\(n(c)) \(n(c)) 0 0 1 \(n(r.maxX - c)) \(n(r.maxY))"
+            + "H\(n(r.minX + c))A\(n(c)) \(n(c)) 0 0 1 \(n(r.minX)) \(n(r.maxY - c))"
+            + "V\(n(r.minY + c))A\(n(c)) \(n(c)) 0 0 1 \(n(r.minX + c)) \(n(r.minY))Z"
+    }
+    let half = TallGlyph.line / 2
+    let ring = rounded(TallGlyph.body.insetBy(dx: -half, dy: -half), TallGlyph.corner + half)
+        + rounded(TallGlyph.body.insetBy(dx: half, dy: half), TallGlyph.corner - half)
+    // The chevron's two 45-degree arms, with round ends and a round point.
+    let (l, m, r) = (TallGlyph.chevron[0], TallGlyph.chevron[1], TallGlyph.chevron[2])
+    let o = half / 2.0.squareRoot()
+    let arc = "A\(n(half)) \(n(half)) 0 0 1 "
+    let chevron = "M\(n(l.x + o)) \(n(l.y - o))L\(n(m.x)) \(n(m.y - 2 * o))L\(n(r.x - o)) \(n(r.y - o))"
+        + "\(arc)\(n(r.x + o)) \(n(r.y + o))L\(n(m.x + o)) \(n(m.y + o))"
+        + "\(arc)\(n(m.x - o)) \(n(m.y + o))L\(n(l.x - o)) \(n(l.y + o))"
+        + "\(arc)\(n(l.x + o)) \(n(l.y - o))Z"
     return """
-    <g transform="translate(\(n(center)) \(n(center))) scale(\(n(u))) translate(-9 -9)" fill="none" stroke="#FFFFFF" stroke-width="\(n(TallGlyph.line))" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="\(n(b.minX))" y="\(n(b.minY))" width="\(n(b.width))" height="\(n(b.height))" rx="\(n(TallGlyph.corner))"/>
-        <polyline points="\(points)"/>
+    <g transform="translate(\(n(center)) \(n(center))) scale(\(n(u))) translate(-9 -9)" fill="#FFFFFF">
+        <path fill-rule="evenodd" d="\(ring)"/>
+        <path d="\(chevron)"/>
       </g>
     """
 }
