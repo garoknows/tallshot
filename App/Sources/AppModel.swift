@@ -19,6 +19,39 @@ enum Permissions {
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 
+    /// Run with this flag, Tallshot only reports what macOS says about Screen Recording, then exits.
+    static let checkScreenRecordingFlag = "--check-screen-recording"
+    static let screenRecordingOnExit: Int32 = 40, screenRecordingOffExit: Int32 = 41
+
+    /// macOS gives a running app the same Screen Recording answer until it restarts. A new process
+    /// gets the current one, so this asks a second copy of Tallshot that exits at once.
+    /// Answers nil if that couldn't be found out.
+    nonisolated static func askFreshProcessAboutScreenRecording(_ done: @escaping @Sendable (Bool?) -> Void) {
+        guard let exe = Bundle.main.executableURL else { done(nil); return }
+        let p = Process()
+        p.executableURL = exe
+        p.arguments = [checkScreenRecordingFlag]
+        p.terminationHandler = { q in
+            switch q.terminationStatus {
+            case screenRecordingOnExit: done(true)
+            case screenRecordingOffExit: done(false)
+            default: done(nil)
+            }
+        }
+        do { try p.run() } catch { done(nil) }
+    }
+
+    /// Quits, and opens this same copy of Tallshot again once it has fully quit, so the old copy
+    /// and the new one never compete for the hotkey.
+    static func quitAndReopen() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", #"while kill -0 "$0" 2>/dev/null; do sleep 0.1; done; exec /usr/bin/open "$1""#,
+                       String(ProcessInfo.processInfo.processIdentifier), Bundle.main.bundleURL.path]
+        do { try p.run() } catch { return }
+        NSApp.terminate(nil)
+    }
+
     static func openSettings(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
     }

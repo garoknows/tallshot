@@ -1,12 +1,17 @@
 import AppKit
 import Combine
 import SwiftUI
+import TallshotCore
 
 /// Watches the two permissions once a second while the setup window is open.
 @MainActor
 final class PermissionWatcher: ObservableObject {
     @Published var screen = Permissions.screenRecording
     @Published var accessibility = Permissions.accessibility
+    /// What a brand-new process reads for Screen Recording, while this one reads it as off.
+    @Published var freshProcessReads: Bool?
+    @Published var openedScreenSettings = false
+    private var asking = false
     private var timer: AnyCancellable?
 
     func start() {
@@ -14,6 +19,19 @@ final class PermissionWatcher: ObservableObject {
             MainActor.assumeIsolated {
                 self?.screen = Permissions.screenRecording
                 self?.accessibility = Permissions.accessibility
+                self?.checkForStaleAnswer()
+            }
+        }
+    }
+
+    private func checkForStaleAnswer() {
+        guard !screen else { freshProcessReads = nil; return }
+        guard !asking else { return }
+        asking = true
+        Permissions.askFreshProcessAboutScreenRecording { answer in
+            Task { @MainActor [weak self] in
+                self?.freshProcessReads = answer
+                self?.asking = false
             }
         }
     }
@@ -57,9 +75,14 @@ struct SetupButton: View {
 struct SetupView: View {
     @StateObject private var watch = PermissionWatcher()
     var preview: (screen: Bool, accessibility: Bool)? = nil
+    /// For pictures: show step 1 in this state.
+    var previewStep: ScreenRecordingStep? = nil
 
     var screen: Bool { preview?.screen ?? watch.screen }
     var ax: Bool { preview?.accessibility ?? watch.accessibility }
+    var screenStep: ScreenRecordingStep {
+        previewStep ?? ScreenRecordingStep(reads: screen, freshProcessReads: watch.freshProcessReads, openedSettings: watch.openedScreenSettings)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -73,7 +96,9 @@ struct SetupView: View {
             SetupStep(number: 1, title: "Allow Screen Recording",
                       detail: "Lets Tallshot take pictures of the window you point at, only while a capture runs. Nothing leaves your Mac.",
                       granted: screen, button: "Open Screen Recording",
+                      reopenNote: screenStep.reopenNote,
                       action: {
+                          watch.openedScreenSettings = true
                           Permissions.requestScreenRecording()
                           Permissions.openSettings("Privacy_ScreenCapture")
                       },
@@ -89,7 +114,7 @@ struct SetupView: View {
             HStack(alignment: .center) {
                 Text(screen && ax
                      ? "All set. Point at any pane and press \(Settings.shared.captureHotkey?.display ?? "the hotkey"). Only that pane is captured. Settings → Output can also save a PDF, Word file or Markdown."
-                     : "This window updates by itself. If a switch is on but the step stays grey, quit and reopen Tallshot (macOS asks for that after Screen Recording).")
+                     : "This window updates by itself.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
@@ -99,7 +124,7 @@ struct SetupView: View {
                     SelfTest.shared.run()
                 }
                 .disabled(!(screen && ax))
-                SetupButton(title: screen && ax ? "Done" : "Later", prominent: true) {
+                SetupButton(title: screen && ax ? "Done" : "Later", prominent: screenStep.reopenNote == nil) {
                     Settings.shared.setupShown = true
                     WindowRouter.shared.close("setup")
                 }
@@ -118,6 +143,8 @@ struct SetupStep<Picture: View>: View {
     var detail: String
     var granted: Bool
     var button: String
+    /// When set: why Tallshot needs to reopen, shown with a "Quit & Reopen Tallshot" button.
+    var reopenNote: String? = nil
     var action: () -> Void
     var picture: Picture
 
@@ -140,6 +167,10 @@ struct SetupStep<Picture: View>: View {
                     Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                 } else {
                     SetupButton(title: button, action: action)
+                    if let reopenNote {
+                        Text(reopenNote).font(.callout).fixedSize(horizontal: false, vertical: true)
+                        SetupButton(title: "Quit & Reopen Tallshot", prominent: true) { Permissions.quitAndReopen() }
+                    }
                 }
             }
             .frame(width: 240, alignment: .leading)

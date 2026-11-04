@@ -15,6 +15,40 @@ func png(_ view: some View, scale: CGFloat = 2, to url: URL) {
     print("wrote \(url.lastPathComponent) \(cg.width)x\(cg.height)")
 }
 
+/// The drawing as SVG, from the same numbers as the app: the site icon, and the white layer of
+/// the Icon Composer file (whose square fills the whole 1024 canvas before macOS insets it).
+func glyphSVG(scale u: CGFloat, center: CGFloat) -> String {
+    let b = TallGlyph.body, c = TallGlyph.chevron
+    let n = { (v: CGFloat) in String(format: "%.3f", v) }
+    let points = c.map { "\(n($0.x)),\(n($0.y))" }.joined(separator: " ")
+    return """
+    <g transform="translate(\(n(center)) \(n(center))) scale(\(n(u))) translate(-9 -9)" fill="none" stroke="#FFFFFF" stroke-width="\(n(TallGlyph.line))" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="\(n(b.minX))" y="\(n(b.minY))" width="\(n(b.width))" height="\(n(b.height))" rx="\(n(TallGlyph.corner))"/>
+        <polyline points="\(points)"/>
+      </g>
+    """
+}
+
+func writeIconSVGs(root: URL) {
+    let square: CGFloat = 824
+    let u = square * AppIconView.glyphShare / TallGlyph.outerHeight
+    let site = """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 824 824">
+      <rect width="824" height="824" rx="\(Int(AppIconView.cornerShare * square))" fill="#15171C"/>
+      \(glyphSVG(scale: u, center: 412))
+    </svg>
+
+    """
+    let layer = """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+      \(glyphSVG(scale: 1024 * AppIconView.glyphShare / TallGlyph.outerHeight, center: 512))
+    </svg>
+
+    """
+    try! site.write(to: root.appendingPathComponent("site/icon.svg"), atomically: false, encoding: .utf8)
+    try! layer.write(to: root.appendingPathComponent("App/Resources/AppIcon.icon/Assets/glyph.svg"), atomically: false, encoding: .utf8)
+}
+
 /// A light, branded backdrop for documentation pictures.
 struct Backdrop<Content: View>: View {
     var content: Content
@@ -101,11 +135,13 @@ struct DocRenderer {
         try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
 
         for base in [16, 32, 128, 256, 512] {
-            png(AppIconView(size: CGFloat(base)), scale: 1, to: iconset.appendingPathComponent("icon_\(base)x\(base).png"))
-            png(AppIconView(size: CGFloat(base)), scale: 2, to: iconset.appendingPathComponent("icon_\(base)x\(base)@2x.png"))
+            png(AppIconView(size: CGFloat(base), shadow: true, pixels: base), scale: 1, to: iconset.appendingPathComponent("icon_\(base)x\(base).png"))
+            png(AppIconView(size: CGFloat(base), shadow: true, pixels: base * 2), scale: 2, to: iconset.appendingPathComponent("icon_\(base)x\(base)@2x.png"))
         }
         png(AppIconView(size: 256), scale: 2, to: docs.appendingPathComponent("icon.png"))
+        writeIconSVGs(root: docs.deletingLastPathComponent().deletingLastPathComponent())
         png(Backdrop { SetupView(preview: (false, false)).environment(\.drawnButtons, true) }, to: docs.appendingPathComponent("setup-window.png"))
+        png(Backdrop { SetupView(preview: (false, false), previewStep: .switchedOnNeedsReopen).environment(\.drawnButtons, true) }, to: docs.appendingPathComponent("setup-reopen.png"))
         png(Backdrop { AnnotatedSettings(pane: .screenRecording).padding(16) }, scale: 3, to: docs.appendingPathComponent("step1-screen-recording.png"))
         png(Backdrop { AnnotatedSettings(pane: .accessibility).padding(16) }, scale: 3, to: docs.appendingPathComponent("step2-accessibility.png"))
         png(MenuPicture(), to: docs.appendingPathComponent("menu.png"))

@@ -23,7 +23,9 @@ On first launch, Tallshot shows a setup window with pictures of exactly where to
 
 ![Step 1: Screen Recording](images/step1-screen-recording.png)
 
-1. Click **Open Screen Recording**. In System Settings, turn on the switch next to **Tallshot**. macOS may ask you to quit and reopen Tallshot; do that.
+1. Click **Open Screen Recording**. In System Settings, turn on the switch next to **Tallshot**. macOS may ask you to quit and reopen Tallshot; do that with the **Quit & Reopen Tallshot** button, which appears in the setup window when the switch is on but Tallshot still reads it as off.
+
+![The Quit & Reopen Tallshot button in step 1](images/setup-reopen.png)
 
 ![Step 2: Accessibility](images/step2-accessibility.png)
 

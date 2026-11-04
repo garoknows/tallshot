@@ -14,19 +14,44 @@ enum Brand {
     }
 }
 
-/// The menu bar icon: a tall, narrow rounded rectangle with a small down chevron at the bottom,
-/// drawn as a template image so it matches light and dark menu bars. Filled while capturing.
+/// The one drawing behind the menu bar icon, the app icon, the site icon and the docs: a tall,
+/// narrow rounded rectangle with a small down chevron at the bottom, in an 18-point square.
+/// tools/DocRenderer writes the same numbers into the SVG files.
+enum TallGlyph {
+    static let body = CGRect(x: 5.25, y: 1.25, width: 7.5, height: 15.5)
+    static let corner: CGFloat = 2.2
+    static let line: CGFloat = 1.5
+    static let chevron = [CGPoint(x: 7, y: 11), CGPoint(x: 9, y: 13), CGPoint(x: 11, y: 11)]
+    /// Height of the drawing, outer edge of the line to outer edge of the line.
+    static let outerHeight = body.height + line
+
+    /// The same drawing placed by hand on whole pixels for the two smallest icon sizes, where
+    /// scaling it down blurs the chevron into a bar. In pixels of a square that many pixels wide.
+    struct Snapped { var body: CGRect, corner: CGFloat, line: CGFloat, chevron: [CGPoint] }
+    static func snapped(pixels: Int) -> Snapped? {
+        switch pixels {
+        case 16: Snapped(body: CGRect(x: 5.5, y: 3.5, width: 5, height: 9), corner: 1.4, line: 1,
+                         chevron: [CGPoint(x: 6.5, y: 8.5), CGPoint(x: 8, y: 10), CGPoint(x: 9.5, y: 8.5)])
+        case 32: Snapped(body: CGRect(x: 12, y: 8, width: 8, height: 16), corner: 2.4, line: 2,
+                         chevron: [CGPoint(x: 13.5, y: 17), CGPoint(x: 16, y: 19.5), CGPoint(x: 18.5, y: 17)])
+        default: nil
+        }
+    }
+}
+
+/// The menu bar icon, drawn as a template image so it matches light and dark menu bars. Filled
+/// while capturing.
 enum MenuBarIcon {
     static func image(filled: Bool) -> NSImage {
         let img = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
-            let body = NSBezierPath(roundedRect: NSRect(x: 5.25, y: 1.25, width: 7.5, height: 15.5), xRadius: 2.2, yRadius: 2.2)
-            body.lineWidth = 1.5
+            let body = NSBezierPath(roundedRect: TallGlyph.body, xRadius: TallGlyph.corner, yRadius: TallGlyph.corner)
+            body.lineWidth = TallGlyph.line
             NSColor.black.setStroke()
             NSColor.black.setFill()
             if filled { body.fill() } else { body.stroke() }
             let chevron = NSBezierPath()
-            chevron.move(to: NSPoint(x: 7, y: 11)); chevron.line(to: NSPoint(x: 9, y: 13)); chevron.line(to: NSPoint(x: 11, y: 11))
-            chevron.lineWidth = 1.5
+            chevron.move(to: TallGlyph.chevron[0]); chevron.line(to: TallGlyph.chevron[1]); chevron.line(to: TallGlyph.chevron[2])
+            chevron.lineWidth = TallGlyph.line
             chevron.lineCapStyle = .round
             chevron.lineJoinStyle = .round
             if filled {
@@ -43,47 +68,49 @@ enum MenuBarIcon {
     }
 }
 
-/// The app icon: a tall paper sheet rising out of a short screen frame, with ruler tick marks
-/// down one edge.
+/// The app icon: the menu bar drawing in white on a Night rounded square, on Apple's macOS icon
+/// grid (an 824 square with a corner of about 185, centered in 1024).
 struct AppIconView: View {
+    /// Share of the square's height the drawing fills.
+    static let glyphShare: CGFloat = 0.72
+    static let squareShare: CGFloat = 824.0 / 1024
+    static let cornerShare: CGFloat = 185.0 / 824
+
     var size: CGFloat
+    /// Apple's standard soft shadow, for the plain .icns only.
+    var shadow = false
+    /// How many pixels wide this will be drawn, for the plain .icns: 16 and 32 get snapped drawings.
+    var pixels: Int? = nil
+
     var body: some View {
-        let u = size / 64
+        let square = size * Self.squareShare
+        let u = square * Self.glyphShare / TallGlyph.outerHeight
+        let line = max(TallGlyph.line * u, 1)
         ZStack {
-            RoundedRectangle(cornerRadius: 14 * u, style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 0.99, green: 0.985, blue: 0.97), Brand.paper], startPoint: .top, endPoint: .bottom))
-                .overlay(RoundedRectangle(cornerRadius: 14 * u, style: .continuous).strokeBorder(Brand.night.opacity(0.08), lineWidth: 0.6 * u))
-                .frame(width: 56 * u, height: 56 * u)
-                .shadow(color: .black.opacity(0.18), radius: 1.4 * u, y: 0.7 * u)
-            Canvas { ctx, _ in
-                func r(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect { CGRect(x: x * u, y: y * u, width: w * u, height: h * u) }
-                // Paper sheet.
-                let sheet = Path(roundedRect: r(21, 8, 22, 40), cornerRadius: 2.5 * u)
-                ctx.fill(sheet, with: .color(.white))
-                ctx.stroke(sheet, with: .color(Brand.night), lineWidth: 2.3 * u)
-                // Ruler ticks.
-                for (i, y) in [13.0, 18, 23, 28, 33].enumerated() {
-                    var p = Path(); p.move(to: CGPoint(x: 24.5 * u, y: y * u)); p.addLine(to: CGPoint(x: (i % 2 == 0 ? 28.5 : 26.5) * u, y: y * u))
-                    ctx.stroke(p, with: .color(Brand.ruler), style: StrokeStyle(lineWidth: 2.2 * u, lineCap: .round))
+            RoundedRectangle(cornerRadius: square * Self.cornerShare, style: .continuous)
+                .fill(Brand.night)
+                .frame(width: square, height: square)
+                .shadow(color: .black.opacity(shadow ? 0.3 : 0), radius: 14 * size / 1024, y: 12 * size / 1024)
+            Canvas { ctx, canvas in
+                let rect: CGRect, corner: CGFloat, width: CGFloat, points: [CGPoint]
+                if let px = pixels, let s = TallGlyph.snapped(pixels: px) {
+                    let k = canvas.width / CGFloat(px)
+                    rect = CGRect(x: s.body.minX * k, y: s.body.minY * k, width: s.body.width * k, height: s.body.height * k)
+                    corner = s.corner * k
+                    width = s.line * k
+                    points = s.chevron.map { CGPoint(x: $0.x * k, y: $0.y * k) }
+                } else {
+                    func p(_ pt: CGPoint) -> CGPoint { CGPoint(x: canvas.width / 2 + (pt.x - 9) * u, y: canvas.height / 2 + (pt.y - 9) * u) }
+                    let b = TallGlyph.body
+                    rect = CGRect(origin: p(b.origin), size: CGSize(width: b.width * u, height: b.height * u))
+                    corner = TallGlyph.corner * u
+                    width = line
+                    points = TallGlyph.chevron.map(p)
                 }
-                // Text lines.
-                for (y, w) in [(14.0, 8.0), (20, 6), (26, 8)] {
-                    var p = Path(); p.move(to: CGPoint(x: 31.5 * u, y: y * u)); p.addLine(to: CGPoint(x: (31.5 + w) * u, y: y * u))
-                    ctx.stroke(p, with: .color(Brand.night.opacity(0.22)), style: StrokeStyle(lineWidth: 2 * u, lineCap: .round))
-                }
-                // Screen frame, open at the top where the sheet rises out.
-                ctx.fill(Path(r(21, 35, 22, 12.5)), with: .color(Brand.lift.opacity(0.14)))
-                var frame = Path()
-                frame.move(to: CGPoint(x: 21 * u, y: 35 * u)); frame.addLine(to: CGPoint(x: 10 * u, y: 35 * u))
-                frame.addLine(to: CGPoint(x: 10 * u, y: 50 * u))
-                frame.addQuadCurve(to: CGPoint(x: 14 * u, y: 54 * u), control: CGPoint(x: 10 * u, y: 54 * u))
-                frame.addLine(to: CGPoint(x: 50 * u, y: 54 * u))
-                frame.addQuadCurve(to: CGPoint(x: 54 * u, y: 50 * u), control: CGPoint(x: 54 * u, y: 54 * u))
-                frame.addLine(to: CGPoint(x: 54 * u, y: 35 * u)); frame.addLine(to: CGPoint(x: 43 * u, y: 35 * u))
-                ctx.stroke(frame, with: .color(Brand.night), style: StrokeStyle(lineWidth: 3.2 * u, lineCap: .round, lineJoin: .round))
+                ctx.stroke(Path(roundedRect: rect, cornerRadius: corner), with: .color(.white), lineWidth: width)
                 var chev = Path()
-                chev.move(to: CGPoint(x: 28 * u, y: 41 * u)); chev.addLine(to: CGPoint(x: 32 * u, y: 45 * u)); chev.addLine(to: CGPoint(x: 36 * u, y: 41 * u))
-                ctx.stroke(chev, with: .color(Brand.lift), style: StrokeStyle(lineWidth: 2.6 * u, lineCap: .round, lineJoin: .round))
+                chev.addLines(points)
+                ctx.stroke(chev, with: .color(.white), style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
             }
             .frame(width: size, height: size)
         }

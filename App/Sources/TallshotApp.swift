@@ -1,7 +1,17 @@
 import AppKit
 import SwiftUI
 
+/// The real entry point. The permission check has to run before any of the app starts up.
 @main
+enum TallshotEntry {
+    static func main() {
+        if CommandLine.arguments.contains(Permissions.checkScreenRecordingFlag) {
+            exit(CGPreflightScreenCaptureAccess() ? Permissions.screenRecordingOnExit : Permissions.screenRecordingOffExit)
+        }
+        TallshotApp.main()
+    }
+}
+
 struct TallshotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @ObservedObject var model = AppModel.shared

@@ -2,6 +2,12 @@
 
 Tallshot turns any scrolling window into one tall screenshot with a single hotkey: point at it, press **⌃⌥⇧⌘T**, and it scrolls to the bottom, stitches the strips, saves a PNG to your Desktop and copies it to your clipboard. No box to draw, no editor.
 
+**New in 0.2.1**
+
+- **Quit & Reopen Tallshot.** macOS keeps telling a running app that Screen Recording is off until the app restarts. The setup window now notices when the switch is on, and offers a button that relaunches Tallshot.
+- **Permissions that last, for builds from source.** With a Developer ID certificate set up in `Config/Signing.xcconfig`, `scripts/install.sh` signs with it and stops rather than quietly building ad hoc, so macOS keeps Tallshot's permissions across rebuilds.
+- **New app icon.** The menu bar icon's shape in white on a dark rounded square, with light, dark, tinted and clear versions on current macOS. The site and docs use it too.
+
 **New in 0.2.0**
 
 - **Just the pane you point at.** New setting, Capture: *Pane under the pointer* (default) or *Whole window*. Pane mode never includes an app's sidebar, a browser's toolbar or the other half of a split view. The outline that flashes first shows exactly what will be captured; press Esc if it's wrong.
