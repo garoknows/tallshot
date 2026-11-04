@@ -5,14 +5,17 @@
 #
 # Usage: scripts/build-direct.sh [version]
 # Env:   TALLSHOT_BUILD_DIR (default ~/Library/Caches/Tallshot-build)
-#        SIGN_IDENTITY      (default "-" = ad hoc; e.g. "Developer ID Application")
+#        SIGN_IDENTITY      (default: the Developer ID team in Config/Signing.xcconfig, and it
+#                           stops if that certificate can't be found; with no such file, "-"
+#                           = ad hoc. Set "-" to force ad hoc.)
 #        TALLSHOT_SANDBOX=1 builds the App Sandbox experiment instead (never released)
 #        ARCHS              (default "arm64 x86_64")
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:-0.2.0}"
+VERSION="${1:-0.2.1}"
 B="${TALLSHOT_BUILD_DIR:-$HOME/Library/Caches/Tallshot-build}/direct-app"
-IDENTITY="${SIGN_IDENTITY:--}"
+# Never quietly fall back to ad hoc when signing is set up: that's a new identity to macOS.
+IDENTITY="${SIGN_IDENTITY:-$("$ROOT/scripts/signing-identity.sh")}"
 APP="$B/Tallshot.app"
 DEV="$(xcode-select -p)"
 TC="$DEV/Toolchains/XcodeDefault.xctoolchain"
@@ -44,10 +47,18 @@ LIPO="$TC/usr/bin/lipo"; [ -x "$LIPO" ] || LIPO=lipo
 cp "$ROOT/App/Info.plist" "$APP/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$APP/Contents/Info.plist"
-[ -f "$ROOT/App/Resources/AppIcon.icns" ] && cp "$ROOT/App/Resources/AppIcon.icns" "$APP/Contents/Resources/"
+# The Icon Composer file gives light, dark, tinted and clear versions. Without a tool that can
+# compile it, the plain .icns is the fallback.
+if ! DEVELOPER_DIR="$DEV" xcrun actool "$ROOT/App/Resources/AppIcon.icon" --compile "$APP/Contents/Resources" \
+      --platform macosx --target-device mac --minimum-deployment-target 14.0 --app-icon AppIcon \
+      --output-partial-info-plist "$B/icon-partial.plist" >/dev/null 2>&1 \
+   || [ ! -f "$APP/Contents/Resources/Assets.car" ]; then
+  echo "Note: couldn't compile AppIcon.icon here; using the plain AppIcon.icns." >&2
+  cp "$ROOT/App/Resources/AppIcon.icns" "$APP/Contents/Resources/"
+fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-TS="--timestamp=none"; [ "$IDENTITY" != "-" ] && TS="--timestamp"
-codesign --force --options runtime $TS --entitlements "$ENT" --sign "$IDENTITY" "$APP"
+# Local builds need no Apple timestamp (only notarization does, and that's the Xcode release path).
+codesign --force --options runtime --timestamp=none --entitlements "$ENT" --sign "$IDENTITY" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 echo "Built $APP"

@@ -41,6 +41,27 @@ jobs:
             -configuration Release -destination "generic/platform=macOS" \
             -derivedDataPath build.nosync/dd build
 
+      - name: App icon (compiled from the Icon Composer file)
+        run: |
+          R=build.nosync/dd/Build/Products/Release/Tallshot.app/Contents/Resources
+          ls -l "$R"
+          test -f "$R/Assets.car"
+          test -f "$R/AppIcon.icns"
+          xcrun --sdk macosx assetutil --info "$R/Assets.car" | grep -E '"(AssetType|Name|Appearance)"' | sort | uniq -c
+          mkdir -p icon-check
+          cp "$R/AppIcon.icns" icon-check/
+          I="$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool"
+          for r in Default Dark ClearLight ClearDark TintedLight TintedDark; do
+            "$I" App/Resources/AppIcon.icon --export-image --output-file "icon-check/$r.png" --platform macOS --rendition "$r" --width 512 --height 512 --scale 1 || true
+          done
+
+      - name: Keep the compiled icon for checking
+        uses: actions/upload-artifact@v4
+        with:
+          name: icon-check
+          path: icon-check
+          retention-days: 7
+
       - name: Privacy checks (no entitlements, no network, no temp files, no third-party code)
         run: scripts/check-privacy.sh build.nosync/dd/Build/Products/Release/Tallshot.app
 

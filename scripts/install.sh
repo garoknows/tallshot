@@ -3,11 +3,16 @@
 # Apps you build yourself don't need the Gatekeeper "Open Anyway" step.
 # Usage: scripts/install.sh                         (installs to ~/Applications)
 #        TALLSHOT_DEST=/Applications scripts/install.sh
+#        scripts/install.sh --remove-other-copies   (also deletes every other Tallshot.app that
+#                                                    Spotlight can find, so only one remains)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP_NAME="Tallshot"
 DEST="${TALLSHOT_DEST:-$HOME/Applications}"
+BUNDLE_ID="io.github.garoknows.tallshot"
+REMOVE_OTHERS=0
+[ "${1:-}" = "--remove-other-copies" ] && REMOVE_OTHERS=1
 fail() { printf '\n\033[31mError:\033[0m %s\n' "$1" >&2; exit 1; }
 
 DEV_DIR="$(xcode-select -p 2>/dev/null || true)"
@@ -18,6 +23,10 @@ if [[ "$DEV_DIR" != *"Xcode"*".app"* ]]; then
   3. Run: sudo xcode-select -s /Applications/Xcode.app
   Then run this script again."
 fi
+
+# If signing is set up, make sure the certificate is usable before spending time on a build.
+scripts/signing-identity.sh >/dev/null || exit 1
+TEAM="$(sed -n 's/^DEVELOPMENT_TEAM *= *//p' Config/Signing.xcconfig 2>/dev/null || true)"
 
 # Keep build output out of iCloud: Desktop/Documents syncing breaks code signing.
 BUILD_DIR="${TALLSHOT_BUILD_DIR:-$HOME/Library/Caches/Tallshot-build}"
@@ -44,9 +53,28 @@ if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
   for _ in $(seq 1 20); do pgrep -x "$APP_NAME" >/dev/null 2>&1 || break; sleep 0.25; done
 fi
 
+if [ -n "$TEAM" ]; then
+  codesign -dv "$BUILT" 2>&1 | grep -q "^TeamIdentifier=$TEAM\$" || fail "The build isn't signed with your Developer ID. Nothing was installed."
+  echo "Signed with your Developer ID: macOS keeps Tallshot's permissions across rebuilds."
+else
+  echo "Ad hoc signed: macOS will ask for the permissions again after every rebuild (see Config/Signing.xcconfig.example)."
+fi
+
 mkdir -p "$DEST"
 rm -rf "$DEST/$APP_NAME.app"
 ditto "$BUILT" "$DEST/$APP_NAME.app" || fail "Couldn't copy into $DEST."
+# The build folder's copy would otherwise be a second Tallshot that macOS can find.
+rm -rf "$BUILT"
+
+if [ "$REMOVE_OTHERS" = 1 ]; then
+  while IFS= read -r other; do
+    [ -n "$other" ] && [ "$other" != "$DEST/$APP_NAME.app" ] || continue
+    case "$other" in /Volumes/*) echo "Not removing $other: it's on a mounted disk image or drive. Eject it."; continue ;; esac
+    [ "$(plutil -extract CFBundleIdentifier raw "$other/Contents/Info.plist" 2>/dev/null)" = "$BUNDLE_ID" ] || continue
+    rm -rf "$other" && echo "Removed $other" || echo "Couldn't remove $other. Delete it in Finder."
+  done < <(mdfind "kMDItemCFBundleIdentifier == '$BUNDLE_ID'")
+fi
+
 echo "Installed to $DEST/$APP_NAME.app. Opening it…"
 open "$DEST/$APP_NAME.app" || fail "Installed, but macOS wouldn't open it yet. Double-click $APP_NAME in $DEST."
 echo "Done. Look for the tall rounded icon in your menu bar."
