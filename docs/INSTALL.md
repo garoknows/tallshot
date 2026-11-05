@@ -41,7 +41,7 @@ Each step turns green by itself. Then click **Run Self-Test**: Tallshot captures
 - Settings (menu → Settings…):
   - **General:** the hotkeys (with a warning under the field if macOS or another app already uses one), Capture (pane under the pointer, or the whole window), Open at login.
   - **Output:** the save folder; Also save as PNG, PDF, Word (.docx), Markdown (.md); Copy as image or text; PDF page size; the preview pop-up; the shutter sound.
-  - **Capture:** scroll speed, the height and time limits, and the optional diagnostic report.
+  - **Capture:** scroll speed, the height and time limits, and the optional diagnostic report and where it goes.
 
 ## Building from source
 

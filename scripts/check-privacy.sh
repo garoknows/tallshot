@@ -27,7 +27,7 @@ else pass "No network code"; fi
 # Tallshot writes files in exactly two places, both into the folder the user chose:
 #  - ExportFiles.swift: the finished capture (PNG, and PDF / Word / Markdown if those are on),
 #    written straight into the folder (no temp copy elsewhere, never overwriting).
-#  - DiagnosticsWriter.swift: a report folder next to the capture, only when the user turned on
+#  - DiagnosticsWriter.swift: a report folder next to the capture or in the folder chosen for reports, only when the user turned on
 #    "Keep a diagnostic report" and a capture stopped early.
 WRITES='\.write\(to|FileManager\.default\.create|createFile|FileHandle|fopen|NSKeyedArchiver|CGImageDestinationCreateWithURL|CGPDFContextCreateWithURL|CGDataConsumer\(url'
 OTHER=$(grep -rn -E "$WRITES" "${SRC[@]}" | grep -v 'Sources/TallshotExport/ExportFiles.swift:.*write(to: url(f.ext), options: .withoutOverwriting)' | grep -v 'App/Sources/DiagnosticsWriter.swift:')

@@ -68,7 +68,7 @@ Tallshot can see the screen and send scroll events, so these rules matter. Each 
 - **Captures only when you ask.** Nothing runs in the background. The screen is read only between the hotkey and the end of that capture.
 - **Protected windows stay protected.** Windows macOS marks as private are left as macOS returns them.
 - **No analytics, no crash reporting, no account.** Settings are the only thing stored.
-- **Diagnostics only if you ask.** An optional setting (off by default) saves a report folder next to a capture that stopped early, for you to share if you want. Nothing is ever sent.
+- **Diagnostics only if you ask.** An optional setting (off by default) saves a report folder when a capture stops early, next to the capture or in a folder you choose, for you to share if you want. Nothing is ever sent.
 
 ## Build and test
 
