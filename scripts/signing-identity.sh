@@ -5,9 +5,8 @@
 # quietly turns ad hoc, which macOS would treat as a different app.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG="$ROOT/Config/Signing.xcconfig"
-if [ ! -f "$CONFIG" ]; then echo "-"; exit 0; fi
-TEAM="$(sed -n 's/^DEVELOPMENT_TEAM *= *//p' "$CONFIG")"
+TEAM="$("$ROOT/scripts/signing-team.sh")"
+if [ -z "$TEAM" ]; then echo "-"; exit 0; fi
 IDENTITY="$(security find-identity -v -p codesigning | grep 'Developer ID Application' | grep "($TEAM)" | awk 'NR==1 {print $2}' || true)"
 if [ -z "$IDENTITY" ]; then
   echo "Error: no usable Developer ID Application certificate for the team in Config/Signing.xcconfig." >&2

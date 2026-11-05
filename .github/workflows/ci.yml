@@ -30,6 +30,9 @@ jobs:
       - name: Stitching engine tests and offscreen AppKit harness (TallshotCore)
         run: swift test -c release --package-path Packages/TallshotCore
 
+      - name: Signing check tests
+        run: scripts/test-signing-check.sh
+
       - name: Generate the Xcode project from project.yml
         run: |
           brew install xcodegen
