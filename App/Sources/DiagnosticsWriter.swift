@@ -2,8 +2,9 @@ import AppKit
 import TallshotCore
 
 /// Saves a diagnostic report for a capture that stopped early, only when the user turned the
-/// setting on: a folder next to the capture with the frames as PNGs and a plain-text step log
-/// (requested and measured scroll distance, line-up scores, the region and the app's name).
+/// setting on: a folder with the frames as PNGs and a plain-text step log (requested and measured
+/// scroll distance, line-up scores, the region and the app's name). It goes next to the capture,
+/// or in the folder chosen for reports.
 /// It stays on this Mac. Nothing is ever sent anywhere, and nothing is written when it is off.
 @MainActor
 enum DiagnosticsWriter {
@@ -23,7 +24,7 @@ enum DiagnosticsWriter {
             n += 1
         }
         do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let r = target.region
             let region = "\(Int(r.minX)), \(Int(r.minY)), \(Int(r.width)) x \(Int(r.height)) points, \(target.kind.rawValue)"
                 + (target.isBrowserLike ? ", browser-like app" : "") + (target.scrollBar != nil ? ", settable scroll bar" : "")

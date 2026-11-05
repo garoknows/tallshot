@@ -76,7 +76,7 @@ final class Settings: ObservableObject {
         static let captureHotkey = "captureHotkey", fromTopHotkey = "fromTopHotkey", saveFolder = "saveFolder"
         static let copy = "copyToClipboard", save = "saveToFolder", toast = "showToast", sound = "shutterSound"
         static let speed = "scrollSpeed", maxHeight = "maxHeight", maxSeconds = "maxSeconds", setupShown = "setupShown"
-        static let diagnostics = "keepDiagnostics"
+        static let diagnostics = "keepDiagnostics", diagnosticsFolder = "diagnosticsFolder"
         static let captureMode = "captureMode", savePDF = "savePDF", saveDOCX = "saveDOCX", saveMD = "saveMarkdown"
         static let copyAs = "copyAs", pageSize = "pdfPageSize", wordImage = "wordIncludesImage"
     }
@@ -93,8 +93,10 @@ final class Settings: ObservableObject {
     @Published var maxHeight: Int { didSet { d.set(maxHeight, forKey: Keys.maxHeight) } }
     @Published var maxSeconds: Int { didSet { d.set(maxSeconds, forKey: Keys.maxSeconds) } }
     @Published var setupShown: Bool { didSet { d.set(setupShown, forKey: Keys.setupShown) } }
-    /// Off by default. When on, a capture that stops early leaves a diagnostic folder next to it.
+    /// Off by default. When on, a capture that stops early leaves a diagnostic report folder.
     @Published var keepDiagnostics: Bool { didSet { d.set(keepDiagnostics, forKey: Keys.diagnostics) } }
+    /// Where those reports go. nil means next to the capture.
+    @Published var diagnosticsFolder: URL? { didSet { d.set(diagnosticsFolder?.path, forKey: Keys.diagnosticsFolder) } }
     /// Pane under the pointer (default) or the whole window.
     @Published var captureMode: CaptureMode { didSet { d.set(captureMode.rawValue, forKey: Keys.captureMode) } }
     /// "Also save as": PNG is `saveToFolder`; these are off by default.
@@ -127,6 +129,7 @@ final class Settings: ObservableObject {
         maxSeconds = d.integer(forKey: Keys.maxSeconds)
         setupShown = d.bool(forKey: Keys.setupShown)
         keepDiagnostics = d.bool(forKey: Keys.diagnostics)
+        diagnosticsFolder = d.string(forKey: Keys.diagnosticsFolder).map { URL(fileURLWithPath: $0, isDirectory: true) }
         captureMode = CaptureMode(rawValue: d.string(forKey: Keys.captureMode) ?? "") ?? .pane
         savePDF = d.bool(forKey: Keys.savePDF)
         saveDOCX = d.bool(forKey: Keys.saveDOCX)

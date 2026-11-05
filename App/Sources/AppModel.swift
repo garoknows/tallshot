@@ -214,10 +214,10 @@ final class AppModel: ObservableObject {
         extra += outcome.notes
         if !extra.isEmpty { detail = ([detail].compactMap { $0 } + extra).joined(separator: "\n") }
         if DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics, result: result) {
-            let folder = outcome.file?.deletingLastPathComponent() ?? settings.folderURL
+            let folder = settings.diagnosticsFolder ?? outcome.file?.deletingLastPathComponent() ?? settings.folderURL
             let base = outcome.file.map { $0.deletingPathExtension().lastPathComponent } ?? Delivery.baseName(for: date)
             let saved = DiagnosticsWriter.write(result, target: target, colorSpace: capturer.colorSpace, folder: folder, baseName: base)
-            let note = saved.map { "Diagnostic report saved: \($0.lastPathComponent)" } ?? "Couldn't save the diagnostic report."
+            let note = saved != nil ? "Diagnostic report saved in \(folder.lastPathComponent)." : "Couldn't save the diagnostic report in \(folder.lastPathComponent)."
             detail = [detail, note].compactMap { $0 }.joined(separator: "\n")
         }
         if let e = outcome.error { detail = [e, detail].compactMap { $0 }.joined(separator: "\n") }

@@ -146,7 +146,18 @@ struct SettingsView: View {
             row("Diagnostics") {
                 Toggle("Keep a diagnostic report when a capture stops early", isOn: $settings.keepDiagnostics)
             }
-            hint("Saves a folder next to the capture with its frames and a log of each scroll step, so you can share one folder instead of a screen recording. Stays on this Mac; nothing is sent anywhere. Off by default.")
+            if settings.keepDiagnostics {
+                row("Save reports to") {
+                    HStack {
+                        Text(settings.diagnosticsFolder?.lastPathComponent ?? "Next to the capture").lineLimit(1).truncationMode(.middle)
+                        Button("Choose…", action: chooseDiagnosticsFolder)
+                        if settings.diagnosticsFolder != nil {
+                            Button("Next to the Capture") { settings.diagnosticsFolder = nil }
+                        }
+                    }
+                }
+            }
+            hint("Saves a folder with the capture's frames and a log of each scroll step, so you can share one folder instead of a screen recording. The frames are pictures of what you captured. Stays on this Mac; nothing is sent anywhere. Off by default.")
         }
     }
 
@@ -166,6 +177,16 @@ struct SettingsView: View {
         panel.directoryURL = settings.folderURL
         panel.prompt = "Save Here"
         if panel.runModal() == .OK, let url = panel.url { settings.saveFolder = url }
+    }
+
+    func chooseDiagnosticsFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = settings.diagnosticsFolder ?? settings.folderURL
+        panel.prompt = "Save Reports Here"
+        if panel.runModal() == .OK, let url = panel.url { settings.diagnosticsFolder = url }
     }
 }
 
