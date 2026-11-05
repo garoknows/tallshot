@@ -26,7 +26,7 @@ fi
 
 # If signing is set up, make sure the certificate is usable before spending time on a build.
 scripts/signing-identity.sh >/dev/null || exit 1
-TEAM="$(sed -n 's/^DEVELOPMENT_TEAM *= *//p' Config/Signing.xcconfig 2>/dev/null || true)"
+TEAM="$(scripts/signing-team.sh)" || exit 1
 
 # Keep build output out of iCloud: Desktop/Documents syncing breaks code signing.
 BUILD_DIR="${TALLSHOT_BUILD_DIR:-$HOME/Library/Caches/Tallshot-build}"
@@ -54,8 +54,8 @@ if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
 fi
 
 if [ -n "$TEAM" ]; then
-  codesign -dv "$BUILT" 2>&1 | grep -q "^TeamIdentifier=$TEAM\$" || fail "The build isn't signed with your Developer ID. Nothing was installed."
-  echo "Signed with your Developer ID: macOS keeps Tallshot's permissions across rebuilds."
+  scripts/verify-signed.sh "$BUILT" || fail "The build isn't signed with your Developer ID. Nothing was installed."
+  echo "macOS keeps Tallshot's permissions across rebuilds."
 else
   echo "Ad hoc signed: macOS will ask for the permissions again after every rebuild (see Config/Signing.xcconfig.example)."
 fi

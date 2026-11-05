@@ -21,6 +21,9 @@ NET='URLSession|NSURLConnection|URLRequest|import Network|CFSocket|NWConnection|
 if grep -rn -E "$NET" "${SRC[@]}" >/dev/null; then bad "Network code found:"; grep -rn -E "$NET" "${SRC[@]}"
 else pass "No network code"; fi
 
+# Below, text is checked with `grep -q ... <<< "$X"`, never `echo "$X" | grep -q`. With pipefail,
+# grep quitting at its match can kill the writer, and that reads as "no match": a false pass.
+
 # Tallshot writes files in exactly two places, both into the folder the user chose:
 #  - ExportFiles.swift: the finished capture (PNG, and PDF / Word / Markdown if those are on),
 #    written straight into the folder (no temp copy elsewhere, never overwriting).
@@ -32,8 +35,9 @@ if [ -n "$OTHER" ]; then bad "File writes outside the export writer and the opt-
 else pass "Only file writes: the capture's files, and the opt-in diagnostic report, both in the chosen folder"; fi
 if grep -rn -E 'options: \.atomic' "${SRC[@]}" >/dev/null; then bad "Atomic writes stage a temp copy outside the chosen folder:"; grep -rn 'options: .atomic' "${SRC[@]}"
 else pass "No atomic writes (nothing staged in a temp folder first)"; fi
-if grep -n 'DiagnosticsWriter.write' "$ROOT/App/Sources/AppModel.swift" | grep -q . && \
-   grep -B3 'DiagnosticsWriter.write' "$ROOT/App/Sources/AppModel.swift" | grep -q 'DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics'; then
+DIAG=$(grep -B3 'DiagnosticsWriter.write' "$ROOT/App/Sources/AppModel.swift")
+if grep -q 'DiagnosticsWriter.write' <<< "$DIAG" && \
+   grep -q 'DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics' <<< "$DIAG"; then
   pass "Diagnostic report written only when its setting is on (and it is off by default)"
 else bad "DiagnosticsWriter.write is not guarded by the keepDiagnostics setting"; fi
 grep -q 'Keys.diagnostics: false' "$ROOT/App/Sources/Settings.swift" && pass "Diagnostics setting defaults to off" || bad "Diagnostics setting is not off by default"
@@ -60,14 +64,14 @@ else pass "No background timers (only the setup window polls permissions while i
 if [ -n "$APP" ]; then
   echo "Built app ($APP)"
   E=$(codesign -d --entitlements :- "$APP" 2>/dev/null)
-  echo "$E" | grep -q "com.apple.security" && bad "Signature carries entitlements: $(echo "$E" | grep -o 'com\.apple\.security[^<]*')" || pass "Signature carries no entitlements"
-  SIG=$(codesign -dv "$APP" 2>&1); echo "$SIG" | grep -q "flags=.*runtime" && pass "Hardened runtime on" || bad "Hardened runtime off"
+  grep -q "com.apple.security" <<< "$E" && bad "Signature carries entitlements: $(echo "$E" | grep -o 'com\.apple\.security[^<]*')" || pass "Signature carries no entitlements"
+  SIG=$(codesign -dv "$APP" 2>&1); grep -q "flags=.*runtime" <<< "$SIG" && pass "Hardened runtime on" || bad "Hardened runtime off"
   BIN="$APP/Contents/MacOS/Tallshot"
   LIBS=$(otool -L "$BIN" 2>/dev/null | grep -v -E ':$' | awk '{print $1}' | grep -v -E '^/System/Library/|^/usr/lib/' || true)
   [ -z "$LIBS" ] && pass "Links only Apple system libraries" || bad "Non-system libraries: $LIBS"
   SYMS=$(nm -u "$BIN" 2>/dev/null)
-  echo "$SYMS" | grep -q -E 'URLSession|NSURLConnection|_connect$|_socket$|nw_connection|CFSocket|getaddrinfo' && bad "Network symbols referenced" || pass "No network symbols referenced"
-  echo "$SYMS" | grep -q -E 'NSTemporaryDirectory|_mkstemp|_tmpfile' && bad "Temp-file symbols referenced" || pass "No temp-file symbols referenced"
+  grep -q -E 'URLSession|NSURLConnection|_connect$|_socket$|nw_connection|CFSocket|getaddrinfo' <<< "$SYMS" && bad "Network symbols referenced" || pass "No network symbols referenced"
+  grep -q -E 'NSTemporaryDirectory|_mkstemp|_tmpfile' <<< "$SYMS" && bad "Temp-file symbols referenced" || pass "No temp-file symbols referenced"
 fi
 
 [ $FAIL = 0 ] && echo "All privacy checks passed." || echo "Privacy checks FAILED."
