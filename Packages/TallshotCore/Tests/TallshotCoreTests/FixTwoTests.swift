@@ -125,7 +125,7 @@ struct HotkeyConflictTests {
         }
         // Not running: no warning for those.
         #expect(H.warning(keyCode: H.keyX, modifiers: H.hyper, registered: true, systemTaken: false, running: []) == nil)
-        // Tallshot's own default (Hyper+T) and Garo's Hyper+Z are fine.
+        // Tallshot's own default (Hyper+T) and Hyper+Z are fine.
         #expect(H.warning(keyCode: 17, modifiers: H.hyper, registered: true, systemTaken: false, running: ["com.raycast.macos"]) == nil)
         #expect(H.warning(keyCode: 6, modifiers: H.hyper, registered: true, systemTaken: false, running: ["com.raycast.macos"]) == nil)
     }

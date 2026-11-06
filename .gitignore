@@ -1,5 +1,5 @@
 # Private planning: never commit
-garoresources.nosync/
+*.nosync/
 kickoff/
 
 # Claude Code settings (contain personal paths)

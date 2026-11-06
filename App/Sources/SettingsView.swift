@@ -77,6 +77,14 @@ struct SettingsView: View {
                     Button("Choose…", action: chooseFolder)
                 }
             }
+            row("File names") {
+                Picker("", selection: $settings.descriptiveFileNames) {
+                    Text("App, title and date").tag(true)
+                    Text("Date only").tag(false)
+                }
+                .labelsHidden().frame(width: 200)
+            }
+            hint("Chrome also adds the site's domain. Private windows and password fields never add anything, and browsers that can't show whether a window is private use only the app and date.")
             row("Also save as") {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("PNG", isOn: $settings.saveToFolder)
