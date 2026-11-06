@@ -288,6 +288,16 @@ public final class CaptureSession {
         var firstHeader = 0, lastFooter = 0
         var movingColumns: Range<Int>? = nil
 
+        /// Lines up two frames. If that fails but the columns known to scroll didn't change, only
+        /// something beside them did (a chat list lighting up): that's standing still, not lost.
+        func lineUp(_ a: PixelImage, _ b: PixelImage, expected: Int? = nil) -> Alignment {
+            let result = aligner.align(a, b, expected: expected)
+            if case .uncertain = result, let span = movingColumns, aligner.isSame(a.columns(span), b.columns(span)) {
+                return .noMovement
+            }
+            return result
+        }
+
         func finish(_ reason: StopReason) -> CaptureResult {
             var footer = lastFooter
             if stitcher.image.height > options.maxHeight { stitcher.cap(height: options.maxHeight); footer = 0 }
@@ -321,9 +331,10 @@ public final class CaptureSession {
         func walkBack(from lost: PixelImage) async throws -> Bool {
             var current = lost
             var back = max(8, middle / 4)
+            var climbedFrom: [PixelImage] = []
             for _ in 0..<60 {
                 if driver.isCancelled || driver.now - start >= options.maxSeconds { return false }
-                switch aligner.align(stitcher.last, current, expected: nil) {
+                switch lineUp(stitcher.last, current) {
                 case .moved(let layout):
                     accept(current, layout)    // a little below the last frame: a normal step
                     return true
@@ -337,6 +348,9 @@ public final class CaptureSession {
                     // Above the last good frame: come most of the way down, gently.
                     wanted = max(1, above.offset * 3 / 4)
                 } else {
+                    // Back at a spot it already climbed from: more walking would only repeat.
+                    if climbedFrom.contains(where: { aligner.isSame($0, current) }) { return false }
+                    climbedFrom.append(current)
                     wanted = -back
                 }
                 let sent = try await scroll(wanted: wanted)
@@ -361,7 +375,7 @@ public final class CaptureSession {
             var frame = try await settledFrame()
             if driver.isCancelled { return finish(.cancelled) }
 
-            var result = aligner.align(stitcher.last, frame, expected: want)
+            var result = lineUp(stitcher.last, frame, expected: want)
             var wait = options.settleIntervalMs * 3
             for _ in 0..<3 {
                 guard case .uncertain = result else { break }
@@ -370,7 +384,7 @@ public final class CaptureSession {
                 wait *= 2
                 frame = try await settledFrame()
                 if driver.isCancelled { return finish(.cancelled) }
-                result = aligner.align(stitcher.last, frame, expected: want)
+                result = lineUp(stitcher.last, frame, expected: want)
             }
             record("step", wanted: want, sent: sent, result)
 

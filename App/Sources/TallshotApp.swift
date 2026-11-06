@@ -59,11 +59,10 @@ struct MenuContent: View {
             .keyboardShortcut("q", modifiers: .command)
     }
 
-    /// From the menu, the pointer is on the menu bar: capture what's under it once the menu closes.
-    /// The pointer usually sits over the window the user wants once they move away from the menu,
-    /// so Capture Now from the menu uses the front window's scrolling area.
+    /// From the menu, capture the front window once the menu has closed. The pointer is on the
+    /// menu's own item, over whatever window happens to be behind it, so it isn't used.
     func captureSoon(fromTop: Bool) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { model.capture(fromTop: fromTop) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { model.capture(fromTop: fromTop, fromMenu: true) }
     }
 }
 
