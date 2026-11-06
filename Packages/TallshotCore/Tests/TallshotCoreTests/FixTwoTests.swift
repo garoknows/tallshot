@@ -229,3 +229,171 @@ struct PageBreakTests {
         #expect(b[3] == false && b[0] && b[6])
     }
 }
+
+/// Some apps draw backgrounds with a faint dither that stays put while the page scrolls and
+/// changes every so many rows, so a scrolled row comes back one color level off.
+@Suite("Faint dither that doesn't scroll")
+struct ScreenFixedDitherTests {
+    let width = 400, height = 1600, tile = 420
+
+    /// A made-up page: rows of "text" in dark-background colors, with blank gaps.
+    func page(rows: Int) -> [UInt32] {
+        var out = [UInt32](repeating: 0xFF19_1919, count: width * rows)
+        for y in 0..<rows where y % 28 < 16 {
+            for x in 30..<370 {
+                let v = (x &* 31 &+ (y / 28) &* 977 &+ (y % 28) &* 13) % 97
+                if v < 30 { out[y * width + x] = 0xFFEE_EEEE - UInt32(v) &* 0x0001_0101 }
+            }
+        }
+        return out
+    }
+
+    /// One screen of the page, with a pattern one level deep whose phase depends on the screen tile.
+    func frame(_ page: [UInt32], at top: Int) -> PixelImage {
+        var px = [UInt32](repeating: 0, count: width * height)
+        for y in 0..<height {
+            let phase = 1 + (y / tile) * 3
+            for x in 0..<width {
+                var v = page[(top + y) * width + x]
+                if (x + phase) % 8 == 0 && (y + phase) % 4 == 0 { v -= 0x0001_0101 }
+                px[y * width + x] = v
+            }
+        }
+        return PixelImage(width: width, height: height, pixels: px)
+    }
+
+    @Test(arguments: [40, 200, 600]) func linesUpAcrossTheDitherLines(distance: Int) {
+        let p = page(rows: height + 800)
+        guard case .moved(let layout) = FrameAligner().align(frame(p, at: 0), frame(p, at: distance), expected: distance) else {
+            Issue.record("should line up"); return
+        }
+        #expect(layout.offset == distance)
+    }
+
+    @Test func exactMatchingAloneCannotLineThemUp() {
+        var strict = AlignmentParameters(); strict.nearMatchLevels = 0
+        let p = page(rows: height + 800)
+        guard case .uncertain = FrameAligner(parameters: strict).align(frame(p, at: 0), frame(p, at: 600), expected: 600) else {
+            Issue.record("this test no longer reproduces the problem"); return
+        }
+    }
+
+    /// The chat scrolls behind a see-through title bar, over a message box at the bottom.
+    @Test(arguments: [200, 600, 1000]) func linesUpBehindATitleBarAndOverAMessageBox(distance: Int) {
+        func covered(_ f: PixelImage, top: Int) -> PixelImage {
+            var px = f.pixels
+            for y in 0..<80 { for x in 0..<width { px[y * width + x] = ((px[y * width + x] >> 2) & 0x003F_3F3F) | 0xFF20_2020 } }
+            for y in (height - 260)..<height { for x in 60..<340 where (x + y) % 3 != 0 { px[y * width + x] = 0xFF30_3030 + UInt32(y - height + 260) % 7 } }
+            return PixelImage(width: width, height: height, pixels: px)
+        }
+        let p = page(rows: height + 1200)
+        let a = covered(frame(p, at: 0), top: 0), b = covered(frame(p, at: distance), top: distance)
+        guard case .moved(let layout) = FrameAligner().align(a, b, expected: distance) else {
+            Issue.record("should line up"); return
+        }
+        #expect(layout.offset == distance)
+    }
+
+    @Test func aRealChangeIsStillRefused() {
+        let p = page(rows: height + 800)
+        var changed = p
+        // Every text pixel in the new frame differs by more than the allowance.
+        for i in changed.indices where changed[i] != 0xFF19_1919 { changed[i] -= 0x0010_1010 }
+        guard case .uncertain = FrameAligner().align(frame(p, at: 0), frame(changed, at: 200), expected: 200) else {
+            Issue.record("a visible change must not count as a match"); return
+        }
+    }
+
+    @Test func fullWindowScrollAreaIsNotAPane() {
+        let window = CGRect(x: 768, y: 33, width: 960, height: 1028)
+        #expect(PanePicker.scrollAreaFillsWindow(window, window: window))
+        #expect(!PanePicker.scrollAreaFillsWindow(CGRect(x: 1032, y: 33, width: 696, height: 1028), window: window))
+    }
+}
+
+/// The element under the scroll point changes when hovered, so a frame that lit up a card never
+/// matches the frames after it exactly.
+@Suite("A card that lights up under the scroll point", .serialized)
+@MainActor
+struct HoverCardTests {
+    func hovering() -> SimulatedWindow {
+        let w = SimulatedWindow(width: 600, height: 700, pageHeight: 6000, footer: 80)
+        w.hoverCardEvery = 300
+        return w
+    }
+
+    func run(_ w: SimulatedWindow, parameters: AlignmentParameters = AlignmentParameters()) async throws -> CaptureResult {
+        var o = CaptureOptions()
+        o.cautiousStartFraction = 0.3
+        o.maxSeconds = 600
+        return try await CaptureSession(driver: w, options: o, aligner: FrameAligner(parameters: parameters)).run()
+    }
+
+    /// Reaching the bottom also proves the end is recognized with the sidebar still blinking.
+    @Test func aBlinkingSidebarDoesNotStopTheCapture() async throws {
+        let w = SimulatedWindow(width: 800, height: 700, pageHeight: 6000, footer: 80, sidebar: 200)
+        w.sidebarSpinner = true
+        let r = try await run(w)
+        #expect(r.reason == .bottom)
+        #expect(r.image.height == w.expected(from: 0).height)
+    }
+
+    @Test func wholePageIsCaptured() async throws {
+        let w = hovering()
+        let r = try await run(w)
+        #expect(r.reason == .bottom)
+        #expect(r.image.height == w.expected(from: 0).height)
+    }
+
+    @Test func gettingLostDoesNotLoopUntilTheTimeLimit() async throws {
+        var strict = AlignmentParameters()
+        strict.maxChangedBlockFraction = 0
+        strict.nearMatchLevels = 0
+        let w = hovering()
+        let r = try await run(w, parameters: strict)
+        #expect(r.reason != .bottom, "this test no longer reproduces the problem")
+        #expect(r.reason != .timeCap)
+        #expect(w.scrolls < 120)
+    }
+
+    @Test func aWholeDifferentPageIsStillRefused() {
+        let a = SimulatedWindow(width: 600, height: 700, pageHeight: 6000, seed: 1)
+        let b = SimulatedWindow(width: 600, height: 700, pageHeight: 6000, seed: 2)
+        guard case .uncertain = FrameAligner().align(a.render(at: 0), b.render(at: 200), expected: 200) else {
+            Issue.record("different content must not line up"); return
+        }
+    }
+}
+
+@Suite("Which window a capture is for")
+struct WindowChoiceTests {
+    // Front to back: a chat window on the left, a mail window behind it reaching further right.
+    let frames = [CGRect(x: 0, y: 30, width: 864, height: 989), CGRect(x: 215, y: 30, width: 1396, height: 987)]
+    let chat: Int32 = 10, mail: Int32 = 20, tallshot: Int32 = 30
+    var owners: [Int32] { [chat, mail] }
+
+    @Test func theMenuUsesTheFrontWindowNotWhateverIsBehindTheMenu() {
+        #expect(WindowChoice.index(frames: frames, owners: owners, pointer: nil, front: chat, own: tallshot) == 0)
+    }
+
+    @Test func theHotkeyUsesTheWindowUnderThePointer() {
+        let overMailOnly = CGPoint(x: 1200, y: 90)
+        #expect(WindowChoice.index(frames: frames, owners: owners, pointer: overMailOnly, front: chat, own: tallshot) == 1)
+        let overBoth = CGPoint(x: 500, y: 90)
+        #expect(WindowChoice.index(frames: frames, owners: owners, pointer: overBoth, front: chat, own: tallshot) == 0)
+    }
+
+    @Test func overNoWindowUsesTheFrontApp() {
+        #expect(WindowChoice.index(frames: frames, owners: owners, pointer: CGPoint(x: 1700, y: 10), front: mail, own: tallshot) == 1)
+    }
+
+    @Test func tallshotInFrontFallsBackToTheNextWindow() {
+        let withOwn = [CGRect(x: 0, y: 0, width: 400, height: 400)] + frames
+        #expect(WindowChoice.index(frames: withOwn, owners: [tallshot, chat, mail], pointer: nil, front: tallshot, own: tallshot) == 1)
+    }
+
+    @Test func noWindowsMeansNothing() {
+        #expect(WindowChoice.index(frames: [], owners: [], pointer: nil, front: chat, own: tallshot) == nil)
+    }
+}
+

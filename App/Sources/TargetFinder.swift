@@ -104,25 +104,25 @@ enum TargetFinder {
         CGEvent(source: nil)?.location ?? .zero
     }
 
-    /// The window under `point` (or the front window when the pointer is on the menu bar).
-    static func window(at point: CGPoint) -> WindowInfo? {
+    /// The window under `point`, or the front window when there is no point (see `WindowChoice`).
+    static func window(at point: CGPoint?) -> WindowInfo? {
         let windows = windowList()
-        let own = ProcessInfo.processInfo.processIdentifier
-        let under = windows.first { $0.bounds.contains(point) }
-        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        return under ?? windows.first(where: { $0.pid == front && $0.pid != own })
+        let i = WindowChoice.index(frames: windows.map(\.bounds), owners: windows.map(\.pid), pointer: point,
+                                   front: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                                   own: ProcessInfo.processInfo.processIdentifier)
+        return i.map { windows[$0] }
     }
 
-    /// The target under `point`, or a fallback. Turns on Chromium/Electron accessibility first
+    /// The target under `point` (nil: in the front window), or a fallback. Turns on Chromium/Electron accessibility first
     /// and retries for up to `waitMs` while the app builds its tree. The returned switch must be
     /// restored when the capture is over.
-    static func find(at point: CGPoint, mode: CaptureMode = .pane, waitMs: Int = 400) async -> (CaptureTarget, AccessibilitySwitch?)? {
+    static func find(at point: CGPoint?, mode: CaptureMode = .pane, waitMs: Int = 400) async -> (CaptureTarget, AccessibilitySwitch?)? {
         guard let window = window(at: point) else { return nil }
         let running = NSRunningApplication(processIdentifier: window.pid)
         let bundleID = running?.bundleIdentifier
         let own = window.pid == ProcessInfo.processInfo.processIdentifier
-        // From the menu the pointer is on the menu bar: look at the middle of the front window instead.
-        let probe = window.bounds.contains(point) ? point : CGPoint(x: window.bounds.midX, y: window.bounds.midY)
+        // From the menu, or over no window: look at the middle of the window instead.
+        let probe = point.flatMap { window.bounds.contains($0) ? $0 : nil } ?? CGPoint(x: window.bounds.midX, y: window.bounds.midY)
 
         var hit: Hit? = nil
         var axSwitch: AccessibilitySwitch? = nil
@@ -159,7 +159,9 @@ enum TargetFinder {
                                    appName: window.owner, bundleID: bundleID, scrollPoint: scrollPoint,
                                    scrollBar: kind == .scrollArea ? hit?.scrollBar : nil, contentHeight: hit?.contentHeight,
                                    isBrowserLike: isBrowserLike(bundleID: bundleID, app: running),
-                                   cropToMovement: mode == .pane && (kind == .webArea || kind == .window),
+                                   cropToMovement: mode == .pane && (kind == .webArea || kind == .window
+                                       || (kind == .scrollArea && isBrowserLike(bundleID: bundleID, app: running)
+                                           && PanePicker.scrollAreaFillsWindow(region, window: window.bounds))),
                                    textRoot: hit?.element)
         return (target, axSwitch)
     }

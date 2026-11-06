@@ -127,13 +127,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// One capture: find the area under the pointer, scroll and stitch, then deliver.
-    func capture(fromTop: Bool) {
+    /// One capture: find the area under the pointer, scroll and stitch, then deliver. From the
+    /// menu the pointer is on the menu's own item, so it says nothing: the front window is used.
+    func capture(fromTop: Bool, fromMenu: Bool = false) {
         guard !isCapturing else { return }
         guard Permissions.allGranted else { WindowRouter.shared.showSetup(); return }
-        let pointer = TargetFinder.pointerLocation()
+        let pointer = fromMenu ? nil : TargetFinder.pointerLocation()
         // Pointing at the self-test page and pressing the hotkey runs the self-test the real way.
-        if SelfTest.shared.contains(pointer) { SelfTest.shared.runFromHotkey(); return }
+        if let pointer, SelfTest.shared.contains(pointer) { SelfTest.shared.runFromHotkey(); return }
         isCapturing = true
         Task {
             defer { isCapturing = false }

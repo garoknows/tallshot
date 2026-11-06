@@ -38,6 +38,25 @@ public struct PixelImage: Equatable, Sendable {
 
     /// True when row `y` of this image equals row `otherY` of `other` in the given columns.
     @inline(__always)
+    /// Whether every pixel in `columns` is within `levels` per color channel of the other row.
+    public func rowIsClose(_ y: Int, _ other: PixelImage, _ otherY: Int, columns: [Range<Int>], levels: Int) -> Bool {
+        pixels.withUnsafeBufferPointer { a in
+            other.pixels.withUnsafeBufferPointer { b in
+                let ab = a.baseAddress! + y * width, bb = b.baseAddress! + otherY * other.width
+                for c in columns {
+                    for x in c where ab[x] != bb[x] {
+                        var p = ab[x], q = bb[x]
+                        for _ in 0..<4 {
+                            if abs(Int(p & 255) - Int(q & 255)) > levels { return false }
+                            p >>= 8; q >>= 8
+                        }
+                    }
+                }
+                return true
+            }
+        }
+    }
+
     public func rowEquals(_ y: Int, _ other: PixelImage, _ otherY: Int, columns: [Range<Int>]? = nil) -> Bool {
         pixels.withUnsafeBufferPointer { a in
             other.pixels.withUnsafeBufferPointer { b in

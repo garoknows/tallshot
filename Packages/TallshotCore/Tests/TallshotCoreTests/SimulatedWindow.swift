@@ -51,6 +51,13 @@ final class SimulatedWindow: CaptureDriver {
     var fadeBand = 0
     var composerMargin = 0
 
+    /// Cards on the page, one every this many rows (64 rows tall). The card under the middle of
+    /// the view lights up, the way an element under the scroll point does when hovered.
+    var hoverCardEvery = 0
+    /// A patch blinking in the sidebar, as a chat that's running shows in a chat list. Tall enough
+    /// that frames with no scrolling don't count as the same.
+    var sidebarSpinner = false
+
     private(set) var captures = 0
     private(set) var scrolls = 0
     private(set) var clock = 0.0
@@ -162,6 +169,19 @@ final class SimulatedWindow: CaptureDriver {
             let knobH = max(20, middle * middle / max(page.height, 1))
             let top = h + (middle - knobH) * p / max(1, maxPos)
             for y in top..<min(h + middle, top + knobH) { for x in (width - 8)..<(width - 3) { img[x, y] = TestPage.rgba(140, 140, 140) } }
+        }
+        if sidebarSpinner {
+            let c = TestPage.rgba(UInt8(captures * 37 % 256), UInt8(captures * 91 % 256), 200)
+            for y in (h + 200)..<(h + 240) { for x in (s - 24)..<(s - 16) { img[x, y] = c } }
+        }
+        if hoverCardEvery > 0 {
+            let pointer = p + middle / 2
+            let card = pointer / hoverCardEvery * hoverCardEvery
+            if pointer - card < 64 {
+                for r in 0..<middle where (card..<(card + 64)).contains(p + r) {
+                    for x in (s + 20)..<(width - 20) { img[x, h + r] = Self.blend(img[x, h + r], TestPage.black, 0.2) }
+                }
+            }
         }
         if contentPatch && captures % 2 == 0 {
             // A blinking cursor that scrolls with the content (page rows 300..<316).

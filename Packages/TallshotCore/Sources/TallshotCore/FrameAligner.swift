@@ -63,6 +63,19 @@ public struct AlignmentParameters: Sendable {
     /// A floating overlay band at the bottom of the moving area (chips over the text, a fade,
     /// a message box with see-through margins) may be up to this share of the frame height.
     public var maxOverlayBandFraction = 0.4
+    /// Some apps draw flat backgrounds with a faint dither that doesn't scroll with the page, so
+    /// the same row can come back a color level or two off. When no offset matches exactly,
+    /// offsets are tried again allowing this many levels per color channel. Far less than any
+    /// visible change: text edges differ by tens of levels.
+    public var nearMatchLevels = 2
+    /// In that second try, a see-through title bar may float over the top of the moving area, up
+    /// to this share of the frame height. Those rows of the new frame are left out of the match.
+    /// The stitcher only ever adds rows at the bottom, so they never repeat in the image.
+    public var maxTopOverlayFraction = 0.1
+    /// In that second try, one block of rows up to this share of the frame height may fail,
+    /// because the element under the scroll point changes when hovered: a card lights up in one
+    /// frame and not the next. A wrong offset fails everywhere, so this doesn't rescue one.
+    public var maxChangedBlockFraction = 0.12
 
     public init() {}
 }
@@ -82,6 +95,10 @@ public struct AlignmentParameters: Sendable {
 ///    text, with see-through gaps. Those rows are neither fixed nor moving, so they never line
 ///    up. If the rows that fail sit together at the bottom of the overlap, they are treated as
 ///    an overlay band: left out of the match, and stitched once, from the last frame, like a footer.
+/// 6. If all that finds nothing, it tries once more, comparing only the vertical strips that
+///    scrolled, and allowing a faint dither, a see-through title bar and one element that changed
+///    (`nearMatchLevels`, `maxTopOverlayFraction`, `maxChangedBlockFraction`). A clean page never
+///    gets this far.
 public struct FrameAligner: Sendable {
     public var parameters: AlignmentParameters
 
@@ -102,6 +119,14 @@ public struct FrameAligner: Sendable {
     /// scroll, in pixels; it narrows the fallback search and breaks ties.
     public func align(_ a: PixelImage, _ b: PixelImage, expected: Int? = nil) -> Alignment {
         precondition(a.width == b.width && a.height == b.height, "frames must be the same size")
+        let exact = align(a, b, expected: expected, levels: 0)
+        guard case .uncertain = exact, parameters.nearMatchLevels > 0 else { return exact }
+        let near = align(a, b, expected: expected, levels: parameters.nearMatchLevels)
+        if case .uncertain = near { return exact }
+        return near
+    }
+
+    private func align(_ a: PixelImage, _ b: PixelImage, expected: Int?, levels: Int) -> Alignment {
         let H = a.height, W = a.width
         guard H > 0 else { return .noMovement }
 
@@ -132,6 +157,7 @@ public struct FrameAligner: Sendable {
             }
         }
         for x in (W - band)..<W { fixed[x] = true }   // never match on the scroll bar sliver
+        if levels > 0 { keepOnlyScrollingStrips(&fixed, a, b, rows: header..<(H - footer), levels: levels) }
         let moving = ranges(of: fixed, value: false)
         if moving.isEmpty { return .noMovement }
 
@@ -154,20 +180,55 @@ public struct FrameAligner: Sendable {
         var candidates = votes.indices.filter { votes[$0] > 0 }.sorted { votes[$0] > votes[$1] }
         candidates = Array(candidates.prefix(12))
 
-        func score(_ d: Int) -> (Double, Int) {
-            var matched = 0, counted = 0
-            for y in 0..<(M - d) where informative[y] {
-                counted += 1
-                if hb[y] == ha[y + d] && b.rowEquals(header + y, a, header + y + d, columns: moving) { matched += 1 }
+        func rowMatches(_ y: Int, _ d: Int) -> Bool {
+            if hb[y] == ha[y + d] && b.rowEquals(header + y, a, header + y + d, columns: moving) { return true }
+            return levels > 0 && b.rowIsClose(header + y, a, header + y + d, columns: moving, levels: levels)
+        }
+
+        /// How many rows at the top to leave out: down to the last failing row in the top zone.
+        // Leaving rows out and allowing near matches makes a wrong offset easier to pass, so the
+        // second try asks for more evidence, and picks the offset closest to the scroll it asked for.
+        let minRows = levels > 0 ? parameters.minInformativeRows * 8 : parameters.minInformativeRows
+        let topZone = levels > 0 ? Int(Double(H) * parameters.maxTopOverlayFraction) : 0
+        func topOverlay(_ d: Int, upTo end: Int) -> Int {
+            guard levels > 0 else { return 0 }
+            var skip = 0
+            for y in 0..<min(topZone, end) where !rowMatches(y, d) { skip = y + 1 }
+            return skip
+        }
+
+        /// The share of rows with detail that match. In the second try, the largest block of
+        /// failing rows short enough to be one changed element is left out of the count.
+        func tally(_ rows: Range<Int>, _ d: Int) -> (Double, Int) {
+            let maxBlock = levels > 0 ? Int(Double(H) * parameters.maxChangedBlockFraction) : 0
+            var matched = 0, counted = 0, leftOut = 0
+            var run: (first: Int, last: Int, count: Int)? = nil
+            func closeRun() {
+                if let r = run, r.last - r.first < maxBlock, r.count > leftOut { leftOut = r.count }
+                run = nil
             }
-            return (counted == 0 ? 0 : Double(matched) / Double(counted), counted)
+            for y in rows where informative[y] {
+                counted += 1
+                if rowMatches(y, d) { matched += 1; closeRun() }
+                else if let r = run { run = (r.first, y, r.count + 1) }
+                else { run = (y, y, 1) }
+            }
+            closeRun()
+            counted -= leftOut
+            return (counted <= 0 ? 0 : Double(matched) / Double(counted), max(0, counted))
+        }
+
+        func score(_ d: Int) -> (Double, Int) {
+            tally(topOverlay(d, upTo: M - d)..<(M - d), d)
         }
 
         var best: (d: Int, s: Double, n: Int)? = nil
         func consider(_ d: Int) {
             let (s, n) = score(d)
-            guard n >= parameters.minInformativeRows else { return }
-            if let cur = best {
+            guard n >= minRows else { return }
+            if let cur = best, levels > 0, let e = expected, s >= parameters.confidence, cur.s >= parameters.confidence {
+                if abs(d - e) < abs(cur.d - e) { best = (d, s, n) }
+            } else if let cur = best {
                 let better = s > cur.s + 0.0005
                 let tie = abs(s - cur.s) <= 0.0005
                 let closer = expected.map { abs(d - $0) < abs(cur.d - $0) } ?? (d < cur.d)
@@ -200,15 +261,14 @@ public struct FrameAligner: Sendable {
         }
 
         // 5. A floating overlay band at the bottom: trim the failing rows there and score the rest.
-        func rowMatches(_ y: Int, _ d: Int) -> Bool {
-            hb[y] == ha[y + d] && b.rowEquals(header + y, a, header + y + d, columns: moving)
-        }
         let maxBand = Int(Double(H) * parameters.maxOverlayBandFraction)
         func bandScore(_ d: Int) -> (s: Double, n: Int, band: Int)? {
             let overlap = M - d
             guard overlap > parameters.minOverlapRows else { return nil }
             // Old-frame row y + d lies in the bottom `maxBand` rows of the moving area from here on.
-            let zoneStart = max(0, M - maxBand - d)
+            // On a big step the zone reaches the top: a title bar's rows there aren't the band.
+            let zoneStart = max(topZone, M - maxBand - d)
+            guard zoneStart < overlap else { return nil }
             var cut = overlap
             for y in zoneStart..<overlap where !rowMatches(y, d) { cut = y; break }
             guard cut < overlap else { return nil }
@@ -217,13 +277,9 @@ public struct FrameAligner: Sendable {
             while cut > 0 && !informative[cut - 1] { cut -= 1 }
             let band = M - (cut + d)
             guard cut >= parameters.minOverlapRows, M - band >= minMiddle else { return nil }
-            var matched = 0, counted = 0
-            for y in 0..<cut where informative[y] {
-                counted += 1
-                if rowMatches(y, d) { matched += 1 }
-            }
-            guard counted >= parameters.minInformativeRows else { return nil }
-            return (Double(matched) / Double(counted), counted, band)
+            let (s, counted) = tally(topOverlay(d, upTo: cut)..<cut, d)
+            guard counted >= minRows else { return nil }
+            return (s, counted, band)
         }
         var banded: (d: Int, s: Double, n: Int, band: Int)? = nil
         var bandCandidates = candidates
@@ -237,7 +293,9 @@ public struct FrameAligner: Sendable {
         for d in bandCandidates {
             guard let r = bandScore(d), r.s >= parameters.confidence else { continue }
             if let cur = banded {
-                let better = r.s > cur.s + 0.0005 || (abs(r.s - cur.s) <= 0.0005 && r.band < cur.band)
+                let better: Bool
+                if levels > 0, let e = expected { better = abs(d - e) < abs(cur.d - e) }
+                else { better = r.s > cur.s + 0.0005 || (abs(r.s - cur.s) <= 0.0005 && r.band < cur.band) }
                 if !better { continue }
             }
             banded = (d, r.s, r.n, r.band)
@@ -285,6 +343,45 @@ public struct FrameAligner: Sendable {
     }
 
     // MARK: Helpers
+
+    /// Something blinking in a sidebar makes its columns count as moving, though they don't
+    /// scroll, and then no whole row can line up. So the rows vote on a distance, and each vertical
+    /// strip of the frame is judged at that distance: it scrolled, it stayed put (a sidebar), or
+    /// neither. Strips that stayed put are set aside. Strips that did neither are evidence against
+    /// the distance, so with more than the two a pane's edges can explain, nothing is set aside.
+    private func keepOnlyScrollingStrips(_ fixed: inout [Bool], _ a: PixelImage, _ b: PixelImage, rows: Range<Int>, levels: Int) {
+        let W = a.width, stripCount = 16
+        guard W >= stripCount * 8, rows.count > parameters.minOverlapRows else { return }
+        func strip(_ s: Int) -> [Range<Int>] { [(W * s / stripCount)..<(W * (s + 1) / stripCount)] }
+        var tally: [Int: Int] = [:]
+        for s in 0..<stripCount where !strip(s)[0].allSatisfy({ fixed[$0] }) {
+            var positions: [UInt64: [Int]] = [:]
+            for y in rows { positions[rowHash(a, y, strip(s)), default: []].append(y) }
+            for y in rows where !isFlat(b, y, strip(s)) {
+                guard let ps = positions[rowHash(b, y, strip(s))], ps.count <= 4 else { continue }
+                for p in ps where p > y { tally[p - y, default: 0] += 1 }
+            }
+        }
+        guard let d = tally.max(by: { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) })?.key else { return }
+        var scrolled: [Int] = [], stayed: [Int] = [], neither = 0, scrolledDetail = 0, allDetail = 0
+        for s in 0..<stripCount where !strip(s)[0].allSatisfy({ fixed[$0] }) {
+            var detail = 0, atDistance = 0, overlap = 0, inPlace = 0
+            for y in rows where !isFlat(b, y, strip(s)) {
+                detail += 1
+                if b.rowIsClose(y, a, y, columns: strip(s), levels: levels) { inPlace += 1 }
+                guard y + d < rows.upperBound else { continue }
+                overlap += 1
+                if b.rowIsClose(y, a, y + d, columns: strip(s), levels: levels) { atDistance += 1 }
+            }
+            allDetail += detail
+            if atDistance >= parameters.minInformativeRows && atDistance * 3 >= overlap { scrolled.append(s); scrolledDetail += detail }
+            else if inPlace * 2 >= detail { stayed.append(s) }
+            else if detail >= parameters.minInformativeRows * 8 { neither += 1 }
+        }
+        // One narrow strip agreeing proves nothing: most of what changed must have scrolled.
+        guard !scrolled.isEmpty, neither <= 2, scrolledDetail * 3 >= allDetail else { return }
+        for s in stayed { for x in strip(s)[0] { fixed[x] = true } }
+    }
 
     /// Width of the right-edge band where an overlay scroll bar may appear.
     public func scrollerBand(_ width: Int) -> Int {

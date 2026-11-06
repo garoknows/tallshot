@@ -49,6 +49,13 @@ public struct PanePick: Equatable, Sendable {
 public enum PanePicker {
     public static let minSize: CGFloat = 60
 
+    /// Electron apps can report one scroll area for the entire window, sidebar included. Such a
+    /// pick isn't really a pane, so the finished capture is cropped to the columns that moved.
+    public static func scrollAreaFillsWindow(_ area: CGRect, window: CGRect) -> Bool {
+        let f = area.intersection(window)
+        return f.width >= window.width * 0.9 && f.height >= window.height * 0.9
+    }
+
     public static func pick(path: [AXNode], window: CGRect, mode: CaptureMode) -> PanePick {
         let fallback = PanePick(frame: window, kind: .window, index: nil)
         guard mode == .pane else { return fallback }
@@ -68,6 +75,18 @@ public enum PanePicker {
         }
         if let w = web { return PanePick(frame: usable(path[w])!, kind: .webArea, index: w) }
         return fallback
+    }
+}
+
+/// Which window a capture is for, from the on-screen windows listed front to back.
+public enum WindowChoice {
+    /// With a pointer (the hotkey): the window under it. Without one (the menu, whose own items
+    /// sit over whatever is behind them), or over no window: the front app's front window, then
+    /// the frontmost window of any other app. Never Tallshot's own window unless pointed at.
+    public static func index(frames: [CGRect], owners: [Int32], pointer: CGPoint?, front: Int32?, own: Int32) -> Int? {
+        if let pointer, let under = frames.firstIndex(where: { $0.contains(pointer) }) { return under }
+        if let front, front != own, let i = owners.firstIndex(of: front) { return i }
+        return owners.firstIndex { $0 != own }
     }
 }
 
