@@ -177,6 +177,80 @@ enum TargetFinder {
         return false
     }
 
+    /// What a capture's file name may say. A browser whose private windows can't be told apart
+    /// has nothing read from it. Only a field's type is checked, never what's typed in it.
+    static func nameFacts(for target: CaptureTarget) -> CaptureName.Facts {
+        let running = NSRunningApplication(processIdentifier: target.pid)
+        let kind = CaptureName.kind(bundleID: target.bundleID, isBrowser: isWebBrowser(bundleID: target.bundleID, app: running))
+        var facts = CaptureName.Facts(appName: target.appName, kind: kind,
+                                      englishLanguage: Locale.preferredLanguages.first?.hasPrefix("en") ?? false)
+        guard kind != .uncheckableBrowser else { return facts }
+        let app = AXUIElementCreateApplication(target.pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        if let focused: AXUIElement = attribute(app, kAXFocusedUIElementAttribute),
+           string(focused, kAXSubroleAttribute) == (kAXSecureTextFieldSubrole as String) {
+            facts.passwordFieldFocused = true
+            return facts
+        }
+        guard let windows: [AXUIElement] = attribute(app, kAXWindowsAttribute),
+              let window = windows.first(where: { frame($0).map { sameFrame($0, target.windowFrame) } ?? false }) else { return facts }
+        let title = string(window, kAXTitleAttribute)
+        facts.title = title
+        switch kind {
+        case .checkableBrowser:
+            if let page = webArea(for: target, window: window) {
+                facts.pageURL = (attribute(page, kAXURLAttribute) as URL?)?.absoluteString ?? string(page, kAXURLAttribute)
+            }
+        case .ordinary:
+            // Many Electron apps name the window after themselves and the page after what's open.
+            if title?.isEmpty ?? true || title == target.appName, let page = webArea(for: target, window: window) {
+                let named = [string(page, kAXTitleAttribute), string(page, kAXDescriptionAttribute)].compactMap { $0 }
+                facts.title = named.first { !$0.isEmpty } ?? title
+            }
+        case .uncheckableBrowser:
+            break
+        }
+        return facts
+    }
+
+    private static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) < 2 && abs(a.minY - b.minY) < 2 && abs(a.width - b.width) < 2 && abs(a.height - b.height) < 2
+    }
+
+    /// Any app macOS knows can open web links, plus the browsers already known by name.
+    private static func isWebBrowser(bundleID: String?, app: NSRunningApplication?) -> Bool {
+        if let id = bundleID {
+            if AccessibilitySwitch.chromiumBrowsers.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) { return true }
+            if ["com.apple.Safari", "com.apple.SafariTechnologyPreview", "org.mozilla.firefox"].contains(id) { return true }
+        }
+        guard let bundle = app?.bundleURL?.standardizedFileURL, let web = URL(string: "https://example.com") else { return false }
+        return NSWorkspace.shared.urlsForApplications(toOpen: web).contains { $0.standardizedFileURL == bundle }
+    }
+
+    /// The web page holding the captured area: above the pane, or else found below the window
+    /// without going inside any page. Gives up rather than hold up the capture.
+    private static func webArea(for target: CaptureTarget, window: AXUIElement) -> AXUIElement? {
+        let role = "AXWebArea"
+        var el = target.textRoot
+        for _ in 0..<30 {
+            guard let current = el else { break }
+            if string(current, kAXRoleAttribute) == role { return current }
+            el = attribute(current, kAXParentAttribute)
+        }
+        var queue = [window], visited = 0
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.25
+        while !queue.isEmpty, visited < 300, ProcessInfo.processInfo.systemUptime < deadline {
+            let node = queue.removeFirst()
+            visited += 1
+            if string(node, kAXRoleAttribute) == role {
+                if frame(node)?.contains(target.center) ?? false { return node }
+                continue
+            }
+            if let children: [AXUIElement] = attribute(node, kAXChildrenAttribute) { queue += children }
+        }
+        return nil
+    }
+
     struct WindowInfo { var id: CGWindowID; var bounds: CGRect; var pid: pid_t; var owner: String }
 
     /// Normal on-screen windows, front to back.

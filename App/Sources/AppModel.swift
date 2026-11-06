@@ -143,10 +143,13 @@ final class AppModel: ObservableObject {
                 return
             }
             defer { axSwitch?.restore() }
-            let date = Date()
+            // Named before anything scrolls, while the window is as the user left it.
+            let baseName = settings.descriptiveFileNames
+                ? CaptureName.descriptive(TargetFinder.nameFacts(for: target), date: Date())
+                : CaptureName.plain(date: Date())
             do {
                 let run = try await Self.run(target: target, options: settings.captureOptions(fromTop: fromTop), collectText: settings.needsText)
-                await deliver(run.result, capturer: run.capturer, target: target, text: run.text, date: date)
+                await deliver(run.result, capturer: run.capturer, target: target, text: run.text, baseName: baseName)
             } catch is CancellationError {
                 Toast.show(message: "Cancelled.", detail: "Nothing was saved or copied.", near: target.region)
             } catch {
@@ -203,10 +206,10 @@ final class AppModel: ObservableObject {
         return (message, lines.isEmpty ? nil : lines.joined(separator: "\n"))
     }
 
-    private func deliver(_ result: CaptureResult, capturer: WindowCapturer, target: CaptureTarget, text: ExportDocument?, date: Date) async {
+    private func deliver(_ result: CaptureResult, capturer: WindowCapturer, target: CaptureTarget, text: ExportDocument?, baseName: String) async {
         let slow = settings.savePDF || settings.saveDOCX || settings.saveMarkdown || settings.needsText
         if slow { Toast.show(message: "Making the files…", detail: settings.savePDF ? "Reading the text for the PDF on this Mac." : nil, near: target.region, seconds: 30) }
-        let outcome = await Delivery.deliver(result.image, colorSpace: capturer.colorSpace, settings: settings, accessibilityText: text, date: date)
+        let outcome = await Delivery.deliver(result.image, colorSpace: capturer.colorSpace, settings: settings, accessibilityText: text, baseName: baseName)
         if settings.shutterSound { NSSound(named: "Pop")?.play() }
         var (message, detail) = Self.popUpText(result, saved: Delivery.message(outcome))
         var extra: [String] = []
@@ -216,7 +219,7 @@ final class AppModel: ObservableObject {
         if !extra.isEmpty { detail = ([detail].compactMap { $0 } + extra).joined(separator: "\n") }
         if DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics, result: result) {
             let folder = settings.diagnosticsFolder ?? outcome.file?.deletingLastPathComponent() ?? settings.folderURL
-            let base = outcome.file.map { $0.deletingPathExtension().lastPathComponent } ?? Delivery.baseName(for: date)
+            let base = outcome.file.map { $0.deletingPathExtension().lastPathComponent } ?? baseName
             let saved = DiagnosticsWriter.write(result, target: target, colorSpace: capturer.colorSpace, folder: folder, baseName: base)
             let note = saved != nil ? "Diagnostic report saved in \(folder.lastPathComponent)." : "Couldn't save the diagnostic report in \(folder.lastPathComponent)."
             detail = [detail, note].compactMap { $0 }.joined(separator: "\n")

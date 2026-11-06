@@ -12,7 +12,7 @@
 #        ARCHS              (default "arm64 x86_64")
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:-0.2.2}"
+VERSION="${1:-0.2.3}"
 B="${TALLSHOT_BUILD_DIR:-$HOME/Library/Caches/Tallshot-build}/direct-app"
 # Never quietly fall back to ad hoc when signing is set up: that's a new identity to macOS.
 IDENTITY="${SIGN_IDENTITY:-$("$ROOT/scripts/signing-identity.sh")}"

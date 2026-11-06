@@ -79,6 +79,7 @@ final class Settings: ObservableObject {
         static let diagnostics = "keepDiagnostics", diagnosticsFolder = "diagnosticsFolder"
         static let captureMode = "captureMode", savePDF = "savePDF", saveDOCX = "saveDOCX", saveMD = "saveMarkdown"
         static let copyAs = "copyAs", pageSize = "pdfPageSize", wordImage = "wordIncludesImage"
+        static let descriptiveNames = "descriptiveFileNames"
     }
 
     @Published var captureHotkey: Hotkey? { didSet { store(captureHotkey, Keys.captureHotkey) } }
@@ -107,6 +108,8 @@ final class Settings: ObservableObject {
     @Published var copyAs: CopyAs { didSet { d.set(copyAs.rawValue, forKey: Keys.copyAs) } }
     @Published var pdfPageSize: PageSize { didSet { d.set(pdfPageSize.rawValue, forKey: Keys.pageSize) } }
     @Published var wordIncludesImage: Bool { didSet { d.set(wordIncludesImage, forKey: Keys.wordImage) } }
+    /// Name files after what's in them (default), or only the date and time.
+    @Published var descriptiveFileNames: Bool { didSet { d.set(descriptiveFileNames, forKey: Keys.descriptiveNames) } }
 
     /// Whether any export needs the words of the capture.
     var needsText: Bool { saveDOCX || saveMarkdown || (copyToClipboard && copyAs == .text) }
@@ -116,7 +119,8 @@ final class Settings: ObservableObject {
         d.register(defaults: [Keys.copy: true, Keys.save: true, Keys.toast: true, Keys.sound: false,
                               Keys.speed: ScrollSpeed.normal.rawValue, Keys.maxHeight: 30_000, Keys.maxSeconds: 60, Keys.diagnostics: false,
                               Keys.captureMode: CaptureMode.pane.rawValue, Keys.savePDF: false, Keys.saveDOCX: false, Keys.saveMD: false,
-                              Keys.copyAs: CopyAs.image.rawValue, Keys.pageSize: PageSize.letter.rawValue, Keys.wordImage: false])
+                              Keys.copyAs: CopyAs.image.rawValue, Keys.pageSize: PageSize.letter.rawValue, Keys.wordImage: false,
+                              Keys.descriptiveNames: true])
         captureHotkey = d.object(forKey: Keys.captureHotkey) == nil ? .defaultCapture : Self.load(d, Keys.captureHotkey)
         fromTopHotkey = Self.load(d, Keys.fromTopHotkey)
         saveFolder = d.string(forKey: Keys.saveFolder).map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -137,6 +141,7 @@ final class Settings: ObservableObject {
         copyAs = CopyAs(rawValue: d.string(forKey: Keys.copyAs) ?? "") ?? .image
         pdfPageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .letter
         wordIncludesImage = d.bool(forKey: Keys.wordImage)
+        descriptiveFileNames = d.bool(forKey: Keys.descriptiveNames)
     }
 
     /// A hotkey is stored as Data; "none" is stored as empty Data so it isn't reset to the default.

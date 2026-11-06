@@ -4,7 +4,7 @@ import TallshotExport
 
 /// Puts a finished capture where the user asked: the clipboard and the save folder, nowhere else.
 /// Every format is built in memory first (off the main thread), then written together into the
-/// chosen folder under one base name: "Tallshot 2026-10-31 at 14.05.22.png", ".pdf", ".docx", ".md".
+/// chosen folder under one base name (see `CaptureName`), with ".png", ".pdf", ".docx", ".md".
 @MainActor
 enum Delivery {
     struct Outcome {
@@ -57,23 +57,12 @@ enum Delivery {
         var accessibilityText: ExportDocument?
     }
 
-    /// "Tallshot 2026-10-31 at 14.05.22"
-    static func baseName(for date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        return "Tallshot \(f.string(from: date))"
-    }
-
-    /// "Tallshot 2026-10-31 at 14.05.22.png"
-    static func fileName(for date: Date) -> String { baseName(for: date) + ".png" }
-
     static func pngData(_ cg: CGImage) -> Data? { ImageBridge.png(cg) }
 
     static func deliver(_ image: PixelImage, colorSpace: CGColorSpace, settings: Settings, accessibilityText: ExportDocument?,
-                        date: Date = Date()) async -> Outcome {
+                        baseName: String) async -> Outcome {
         let folder = settings.folderURL
-        var plan = Plan(settings: settings, baseName: baseName(for: date))
+        var plan = Plan(settings: settings, baseName: baseName)
         let exts = [plan.png ? "png" : nil, plan.pdf ? "pdf" : nil, plan.docx ? "docx" : nil, plan.md ? "md" : nil].compactMap { $0 }
         plan.baseName = ExportFiles.uniqueBaseName(plan.baseName, extensions: exts, folder: folder)
         let input = Input(image: image, colorSpace: colorSpace, accessibilityText: accessibilityText)

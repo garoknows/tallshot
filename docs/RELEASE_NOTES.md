@@ -2,6 +2,12 @@
 
 Tallshot turns any scrolling window into one tall screenshot with a single hotkey: point at it, press **⌃⌥⇧⌘T**, and it scrolls to the bottom, stitches the strips, saves a PNG to your Desktop and copies it to your clipboard. No box to draw, no editor.
 
+**New in 0.2.3**
+
+- **File names that say what's in them.** For example "Notes - Trip plan - 2026-11-06 at 14.05.png", or with Chrome's domain, "Google Chrome - example.com - Chat test - 2026-11-06 at 14.05.png". Long titles are trimmed to about 60 characters. The PNG, PDF, Word, Markdown and diagnostic report all share the name.
+- **Private windows stay out of the name.** Nothing from a private window or password field goes in. Tallshot can only recognize a private window in Chrome, so Safari, Arc, Firefox, Edge, Brave and other browsers use just the app and date.
+- **Prefer the old names?** Settings → Output → File names → Date only.
+
 **New in 0.2.2**
 
 - **Chat apps that kept stopping early now capture start to finish.** Tested with the Claude desktop app. Tallshot now copes with a see-through title bar, a faint background pattern that doesn't scroll, a card that lights up under the scroll point, and something blinking in a sidebar.
