@@ -36,7 +36,7 @@ Each step turns green by itself. Then click **Run Self-Test**: Tallshot captures
 ## Using it
 
 - Point at any scrolling area and press **⌃⌥⇧⌘T**.
-- **Capture from Top** in the menu scrolls to the top first.
+- **Capture from Top** in the menu scrolls to the top first. From the menu, Tallshot captures the front window; with a hotkey, the window under the pointer.
 - Esc, a click, a key or moving the mouse stops it and keeps what was captured.
 - Settings (menu → Settings…):
   - **General:** the hotkeys (with a warning under the field if macOS or another app already uses one), Capture (pane under the pointer, or the whole window), Open at login.

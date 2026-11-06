@@ -2,6 +2,13 @@
 
 Tallshot turns any scrolling window into one tall screenshot with a single hotkey: point at it, press **⌃⌥⇧⌘T**, and it scrolls to the bottom, stitches the strips, saves a PNG to your Desktop and copies it to your clipboard. No box to draw, no editor.
 
+**New in 0.2.2**
+
+- **Chat apps that kept stopping early now capture start to finish.** Tested with the Claude desktop app. Tallshot now copes with a see-through title bar, a faint background pattern that doesn't scroll, a card that lights up under the scroll point, and something blinking in a sidebar.
+- **No sidebar in those apps.** When an app reports its whole window as one scrolling area, the finished image is cropped to what actually scrolled. The outline that flashes first still shows the whole window for these apps.
+- **The menu captures the right window.** From the menu, Tallshot now captures the front window, not whatever window happened to be behind the menu.
+- **Choose where diagnostic reports go.** Settings → Capture → Save reports to. By default they still go next to the capture.
+
 **New in 0.2.1**
 
 - **Quit & Reopen Tallshot.** macOS keeps telling a running app that Screen Recording is off until the app restarts. The setup window now notices when the switch is on, and offers a button that relaunches Tallshot.
