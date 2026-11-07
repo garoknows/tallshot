@@ -4,8 +4,6 @@
 
 <p align="center"><b>One hotkey. The whole page.</b><br>Scrolling screenshots on Mac without drawing a box.</p>
 
-> **Early preview.** Tallshot is being built and tested by its author. It may not work on your Mac yet. Releases are GitHub pre-releases until it has proven itself in daily use.
-
 Tallshot is a free, open-source Mac menu bar app that turns any scrolling window into one tall screenshot. Point at what you want, press the keys, and it scrolls from where you are to the bottom, stitches the pieces, saves the PNG to your Desktop and copies it to your clipboard. No box to draw, no editor to close.
 
 **Website:** https://garoknows.github.io/tallshot/
@@ -24,7 +22,7 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 - **Very long pages** stop at 30,000 pixels or 60 seconds (both adjustable).
 - **Browsers and chat apps.** In Chrome, Arc, Safari and Electron apps Tallshot finds the pane you point at, leaves out the browser's toolbar and the app's sidebar, and handles the floating buttons and message box of chat apps. **Capture from Top** waits for older messages to load, so you can export a whole chat.
 - **Also save as PDF, Word and Markdown.** The PDF is the tall image on Letter or A4 pages, cut between lines of text, and searchable. Word and Markdown get the words with their headings, nested bullets, links and code blocks: read from the app when it shares them, otherwise recognized from the image on your Mac. You can also copy the text as Markdown instead of the image.
-- **File names that say what's in them.** For example `Notes - Trip plan - 2026-11-06 at 14.05.png`. Chrome captures add the site's domain. Nothing from a private window or password field goes in the name, and other browsers use only the app and date because Tallshot can't tell whether their windows are private. Settings → Output → File names switches to date-only names.
+- **File names that say what's in them.** For example `Arc - example.com - Chat test - 2026-11-07 at 14.05 - Tallshot.png`: the app, the site's domain in a browser, the window or page title, the date and time. Nothing goes in from a password field that has the keyboard or a Chrome Incognito window. Settings → Output → File names → Date only gives `2026-11-07 at 14.05.22 - Tallshot.png`.
 - **It measures every step.** If an app scrolls further than asked, Tallshot asks for less and walks back until the pictures overlap again. If a capture stops early, the pop-up says so and why.
 
 <p align="center"><img src="docs/images/menu.png" width="420" alt="The Tallshot menu: Capture Now, Capture from Top, Settings, Run Self-Test, Quit"></p>

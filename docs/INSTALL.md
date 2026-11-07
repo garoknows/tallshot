@@ -8,7 +8,7 @@
 
 ### If macOS says it can't check Tallshot
 
-Early previews may not be signed and notarized by Apple yet. If macOS says *"Tallshot" can't be opened because Apple cannot check it for malicious software*:
+Releases from 1.0 on are signed with a Developer ID and notarized by Apple, so they open with no warning. Older pre-releases (0.x) weren't. If one of those says *"Tallshot" can't be opened because Apple cannot check it for malicious software*:
 
 1. Click **Done** (not Move to Trash).
 2. Open **System Settings → Privacy & Security**.

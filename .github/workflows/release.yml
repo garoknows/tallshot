@@ -33,7 +33,7 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then V="$INPUT_VERSION"; else V="${GITHUB_REF_NAME#v}"; fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          # 0.x versions are early previews: published as GitHub pre-releases.
+          # 0.x versions were previews, published as GitHub pre-releases; 1.0 and later are full releases.
           case "$V" in 0.*) echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=" >> "$GITHUB_OUTPUT" ;; esac
 
       - name: Tests (engine and offscreen harness)

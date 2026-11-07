@@ -1,36 +1,30 @@
-**Early preview.** Tallshot is being tested by its author; expect rough edges.
+Tallshot turns any scrolling window into one tall screenshot with a single hotkey. Point at it, press **⌃⌥⇧⌘T**, and it scrolls to the bottom, stitches the strips, saves a PNG and copies it to your clipboard. No box to draw, no editor to close.
 
-Tallshot turns any scrolling window into one tall screenshot with a single hotkey: point at it, press **⌃⌥⇧⌘T**, and it scrolls to the bottom, stitches the strips, saves a PNG to your Desktop and copies it to your clipboard. No box to draw, no editor.
+**Tallshot 1.0**
 
-**New in 0.2.3**
+This is the first full release. It's signed with a Developer ID and notarized by Apple, so it opens with no warning.
 
-- **File names that say what's in them.** For example "Notes - Trip plan - 2026-11-06 at 14.05.png", or with Chrome's domain, "Google Chrome - example.com - Chat test - 2026-11-06 at 14.05.png". Long titles are trimmed to about 60 characters. The PNG, PDF, Word, Markdown and diagnostic report all share the name.
-- **Private windows stay out of the name.** Nothing from a private window or password field goes in. Tallshot can only recognize a private window in Chrome, so Safari, Arc, Firefox, Edge, Brave and other browsers use just the app and date.
-- **Prefer the old names?** Settings → Output → File names → Date only.
+- **Just the pane you point at.** A chat column, a mail message, one side of a split view. Sidebars, toolbars and the other pane stay out. Prefer the whole window? Settings → General → Capture.
+- **Works where scrolling is awkward.** Browsers that glide past where they were asked to stop, chat apps with floating buttons and a see-through message box, and pages that load older messages at the top. Capture from Top starts at the very beginning.
+- **Also save as PDF, Word and Markdown.** A searchable PDF on Letter or A4 pages, and Word and Markdown files with real headings, lists, links and code. Copy as text puts the Markdown on the clipboard.
+- **File names that say what's in them.** For example `Arc - example.com - Chat test - 2026-11-07 at 14.05 - Tallshot.png`. Prefer the date only? Settings → Output → File names.
+- **Private by design.** No network code, no analytics, no account. Captures go only to your clipboard and the folder you choose. Text recognition runs on your Mac.
 
-**New in 0.2.2**
+**Fixed since 0.2.3**
 
-- **Chat apps that kept stopping early now capture start to finish.** Tested with the Claude desktop app. Tallshot now copes with a see-through title bar, a faint background pattern that doesn't scroll, a card that lights up under the scroll point, and something blinking in a sidebar.
-- **No sidebar in those apps.** When an app reports its whole window as one scrolling area, the finished image is cropped to what actually scrolled. The outline that flashes first still shows the whole window for these apps.
-- **The menu captures the right window.** From the menu, Tallshot now captures the front window, not whatever window happened to be behind the menu.
-- **Choose where diagnostic reports go.** Settings → Capture → Save reports to. By default they still go next to the capture.
+- A failed save (a full disk, a missing folder) left some files without saying so. Tallshot now keeps what it saved, says which, and removes any half-written file.
+- Scrolling set to the opposite direction (by a scroll-reversing utility, for example) wasn't noticed when a capture started at the top of a page.
+- Very tall captures copied the whole image on every step, which was slow and briefly doubled the memory used.
+- A window or Tallshot's own pop-up over the middle of the pane could catch the scrolling.
+- An app that had stopped responding could freeze Tallshot for about ten seconds.
+- Recording a hotkey that Tallshot already uses started a capture instead.
+- The Capture from Top hotkey could type its letter into the app if the key was held.
+- After a capture, Electron apps kept their extra accessibility work switched on.
+- The setup window's permission check could keep running after the window closed.
+- Word: numbered lists didn't restart at 1, and line breaks inside text were lost.
+- Markdown: text that looked like HTML or a numbered list changed meaning, links could break, and only web and mail links are kept.
+- PDF and Word text could treat every line as code after an earlier capture of a different page.
+- The pop-up thumbnail was stretched for short captures.
+- A diagnostic report that failed to save could leave a partial folder.
 
-**New in 0.2.1**
-
-- **Quit & Reopen Tallshot.** macOS keeps telling a running app that Screen Recording is off until the app restarts. The setup window now notices when the switch is on, and offers a button that relaunches Tallshot.
-- **Permissions that last, for builds from source.** With a Developer ID certificate set up in `Config/Signing.xcconfig`, `scripts/install.sh` signs with it and stops rather than quietly building ad hoc, so macOS keeps Tallshot's permissions across rebuilds.
-- **New app icon.** The menu bar icon's shape in white on a dark rounded square, with light, dark, tinted and clear versions on current macOS. The site and docs use it too.
-
-**New in 0.2.0**
-
-- **Just the pane you point at.** New setting, Capture: *Pane under the pointer* (default) or *Whole window*. Pane mode never includes an app's sidebar, a browser's toolbar or the other half of a split view. The outline that flashes first shows exactly what will be captured; press Esc if it's wrong.
-- **Also save as PDF, Word and Markdown** (Settings → Output). The PDF splits the tall image into Letter or A4 pages, cut between lines of text, with a searchable text layer. Word and Markdown get the words with headings, nested bullets, links and code blocks: read from the app's accessibility tree when it shares them, otherwise recognized from the image on your Mac. Each export says which. Option: include the image in the Word file.
-- **Copy as text:** put the Markdown on the clipboard instead of the image.
-- **Settings in three tabs:** General, Output, Capture. "Show a toast" is now **Show a preview pop-up**, and clicking it opens the file.
-- **Hotkey warnings:** if macOS refuses a hotkey, it isn't kept, and the field says so; if macOS or a running app such as Raycast is known to use it, a warning says which.
-
-**Also in 0.1.1:** scrolling without overshoot in browsers and chat apps, a test page at https://garoknows.github.io/tallshot/test/chat/, and an optional diagnostic report.
-
-**Privacy:** no network code, no third-party code, no analytics. Text recognition runs on your Mac. Frames stay in memory; only the files you chose are saved, in the folder you chose. Needs macOS 14 Sonoma or later.
-
-**Install:** open the .dmg, drag Tallshot to Applications, open it, and follow the two setup steps. If you had an earlier version, macOS may ask for Screen Recording and Accessibility again.
+**Requirements:** macOS 14 Sonoma or later. Tallshot asks for Screen Recording and Accessibility on first launch, with pictures of where to click.
