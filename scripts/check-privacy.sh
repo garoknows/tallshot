@@ -29,11 +29,12 @@ else pass "No network code"; fi
 #    written straight into the folder (no temp copy elsewhere, never overwriting).
 #  - DiagnosticsWriter.swift: a report folder next to the capture or in the folder chosen for reports, only when the user turned on
 #    "Keep a diagnostic report" and a capture stopped early.
-WRITES='\.write\(to|FileManager\.default\.create|createFile|FileHandle|fopen|NSKeyedArchiver|CGImageDestinationCreateWithURL|CGPDFContextCreateWithURL|CGDataConsumer\(url'
-OTHER=$(grep -rn -E "$WRITES" "${SRC[@]}" | grep -v 'Sources/TallshotExport/ExportFiles.swift:.*write(to: url(f.ext), options: .withoutOverwriting)' | grep -v 'App/Sources/DiagnosticsWriter.swift:')
+WRITES='\.write\(to|\.write\(toFile|FileManager\.default\.create|createFile|copyItem|\bmoveItem|replaceItem|linkItem|FileHandle|fopen|mkstemp|NSKeyedArchiver|CGImageDestinationCreateWithURL|CGPDFContextCreateWithURL|CGDataConsumer\(url'
+OTHER=$(grep -rn -E "$WRITES" "${SRC[@]}" | grep -v 'Sources/TallshotExport/ExportFiles.swift:.*write(to: url, options: .withoutOverwriting)' | grep -v 'App/Sources/DiagnosticsWriter.swift:')
 if [ -n "$OTHER" ]; then bad "File writes outside the export writer and the opt-in diagnostics:"; echo "$OTHER"
 else pass "Only file writes: the capture's files, and the opt-in diagnostic report, both in the chosen folder"; fi
-if grep -rn -E 'options: \.atomic' "${SRC[@]}" >/dev/null; then bad "Atomic writes stage a temp copy outside the chosen folder:"; grep -rn 'options: .atomic' "${SRC[@]}"
+ATOMIC='\.atomic\b|atomically: *true'
+if grep -rn -E "$ATOMIC" "${SRC[@]}" >/dev/null; then bad "Atomic writes stage a temp copy outside the chosen folder:"; grep -rn -E "$ATOMIC" "${SRC[@]}"
 else pass "No atomic writes (nothing staged in a temp folder first)"; fi
 DIAG=$(grep -B3 'DiagnosticsWriter.write' "$ROOT/App/Sources/AppModel.swift")
 if grep -q 'DiagnosticsWriter.write' <<< "$DIAG" && \
@@ -41,9 +42,19 @@ if grep -q 'DiagnosticsWriter.write' <<< "$DIAG" && \
   pass "Diagnostic report written only when its setting is on (and it is off by default)"
 else bad "DiagnosticsWriter.write is not guarded by the keepDiagnostics setting"; fi
 grep -q 'Keys.diagnostics: false' "$ROOT/App/Sources/Settings.swift" && pass "Diagnostics setting defaults to off" || bad "Diagnostics setting is not off by default"
-if grep -rn -E 'NSTemporaryDirectory|temporaryDirectory|cachesDirectory|URLCache|\.cachesDirectory' "${SRC[@]}" >/dev/null; then
-  bad "Temp or cache folder use found:"; grep -rn -E 'NSTemporaryDirectory|temporaryDirectory|cachesDirectory|URLCache' "${SRC[@]}"
+TEMP='NSTemporaryDirectory|temporaryDirectory|cachesDirectory|itemReplacementDirectory|applicationSupportDirectory|URLCache|"/tmp|"/var/'
+if grep -rn -E "$TEMP" "${SRC[@]}" >/dev/null; then
+  bad "Temp or cache folder use found:"; grep -rn -E "$TEMP" "${SRC[@]}"
 else pass "No temp files or caches (frames stay in memory)"; fi
+# Other programs could write or send anything, so only the two known ones may be started: a
+# second copy of Tallshot that only reports the Screen Recording answer, and /bin/sh waiting to
+# reopen Tallshot after it quits.
+PROCS=$(grep -rn -E 'Process\(|posix_spawn|NSTask|(^|[^.A-Za-z])system\(' "${SRC[@]}")
+PROCS_OK=$(grep -c -E 'AppModel.swift:[0-9]+: +let p = Process\(\)' <<< "$PROCS")
+if [ -z "$PROCS" ] || { [ "$(grep -c . <<< "$PROCS")" = 2 ] && [ "$PROCS_OK" = 2 ] && \
+     grep -q 'p.executableURL = exe' "$ROOT/App/Sources/AppModel.swift" && grep -q 'URL(fileURLWithPath: "/bin/sh")' "$ROOT/App/Sources/AppModel.swift"; }; then
+  pass "Starts no other programs (only Tallshot itself, and the reopen helper)"
+else bad "Starts other programs:"; echo "$PROCS"; fi
 if grep -rn -E 'os_log|Logger\(|NSLog|print\(|debugPrint\(|dump\(' "${SRC[@]}" >/dev/null; then
   bad "Logging found:"; grep -rn -E 'os_log|Logger\(|NSLog|print\(|debugPrint\(|dump\(' "${SRC[@]}"
 else pass "No logging"; fi

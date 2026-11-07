@@ -254,13 +254,17 @@ struct ExportPrivacyTests {
         let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Tallshot-build/export-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let written = try ExportFiles.write(files, baseName: "Tallshot 2026-10-31 at 14.05.22", folder: folder)
-        #expect(Set(written.keys) == ["png", "pdf", "docx", "md"])
-        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) ==
-                ["Tallshot 2026-10-31 at 14.05.22.png", "Tallshot 2026-10-31 at 14.05.22.pdf", "Tallshot 2026-10-31 at 14.05.22.docx", "Tallshot 2026-10-31 at 14.05.22.md"])
-        // A second export never overwrites: all four move to " 2" together.
-        let again = try ExportFiles.write(files, baseName: "Tallshot 2026-10-31 at 14.05.22", folder: folder)
-        #expect(again["md"]?.lastPathComponent == "Tallshot 2026-10-31 at 14.05.22 2.md")
+        let name = "Notes - Trip plan - 2026-10-31 at 14.05 - Tallshot"
+        let exts = files.map(\.ext)
+        let written = ExportFiles.write(files, baseName: ExportFiles.uniqueBaseName(name, extensions: exts, folder: folder, ending: " - Tallshot"), folder: folder)
+        #expect(written.error == nil)
+        #expect(Set(written.files.keys) == ["png", "pdf", "docx", "md"])
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == Set(exts.map { "\(name).\($0)" }))
+        // A second export never overwrites: all four move to " 2" together, before the ending.
+        let second = ExportFiles.uniqueBaseName(name, extensions: exts, folder: folder, ending: " - Tallshot")
+        #expect(second == "Notes - Trip plan - 2026-10-31 at 14.05 2 - Tallshot")
+        let again = ExportFiles.write(files, baseName: second, folder: folder)
+        #expect(again.files["md"]?.lastPathComponent == "Notes - Trip plan - 2026-10-31 at 14.05 2 - Tallshot.md")
         // Nothing else, anywhere in temp or caches, holds the exported words or pixels.
         let needles = [Data(marker.utf8), px.row(px.height / 2).withUnsafeBytes { Data($0) }]
         let roots = [FileManager.default.temporaryDirectory, FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]]
@@ -274,5 +278,47 @@ struct ExportPrivacyTests {
                 #expect(!needles.contains { data.range(of: $0) != nil }, "export content found in \(url.lastPathComponent)")
             }
         }
+    }
+
+    @Test func aFailedSaveKeepsAndReportsWhatWasSaved() throws {
+        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Tallshot-build/export-fail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // Someone else's file already has the PDF's name, so that write fails part way.
+        let theirs = folder.appendingPathComponent("X - Tallshot.pdf")
+        try Data("theirs".utf8).write(to: theirs)
+        let files: [(ext: String, data: Data)] = [("png", Data([1, 2, 3])), ("pdf", Data([4])), ("md", Data([5]))]
+        let written = ExportFiles.write(files, baseName: "X - Tallshot", folder: folder)
+        #expect(written.error != nil)
+        #expect(written.files.keys.sorted() == ["png"])
+        #expect(try Data(contentsOf: theirs) == Data("theirs".utf8), "someone else's file must not be touched")
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("X - Tallshot.md").path))
+    }
+    @Test func uniqueNamesWithoutTheEndingStillWork() throws {
+        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Tallshot-build/export-uniq-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data().write(to: folder.appendingPathComponent("Plain.png"))
+        #expect(ExportFiles.uniqueBaseName("Plain", extensions: ["png"], folder: folder, ending: " - Tallshot") == "Plain 2")
+    }
+
+    @Test func wordNumberedListsEachStartAtOne() {
+        let doc = ExportDocument(blocks: [
+            .listItem(level: 0, ordered: true, [Inline("one")]), .listItem(level: 0, ordered: true, [Inline("two")]),
+            .paragraph([Inline("between")]),
+            .listItem(level: 0, ordered: true, [Inline("again one")]),
+        ], source: .accessibility)
+        let data = Docx.make(doc)
+        let xml = docxXML(data)
+        #expect(xml.contains("<w:numId w:val=\"2\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">two"))
+        #expect(xml.contains("<w:numId w:val=\"3\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">again one"))
+        let numbering = String(decoding: Zip.entries(data)["word/numbering.xml"] ?? Data(), as: UTF8.self)
+        #expect(numbering.contains("<w:num w:numId=\"3\"><w:abstractNumId w:val=\"1\"/><w:lvlOverride w:ilvl=\"0\"><w:startOverride w:val=\"1\"/>"))
+    }
+    @Test func wordKeepsLineBreaksAndDropsInvalidCharacters() {
+        let doc = ExportDocument(blocks: [.paragraph([Inline("Hello\nWorld\u{FFFF}")])], source: .accessibility)
+        let xml = docxXML(Docx.make(doc))
+        #expect(xml.contains("<w:t xml:space=\"preserve\">Hello</w:t><w:br/><w:t xml:space=\"preserve\">World</w:t>"))
+        #expect(!xml.contains("\u{FFFF}"))
     }
 }

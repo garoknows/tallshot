@@ -23,8 +23,10 @@ enum DiagnosticsWriter {
             dir = folder.appendingPathComponent("\(baseName) diagnostics \(n)", isDirectory: true)
             n += 1
         }
+        var created = false
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            created = true
             let r = target.region
             let region = "\(Int(r.minX)), \(Int(r.minY)), \(Int(r.width)) x \(Int(r.height)) points, \(target.kind.rawValue)"
                 + (target.isBrowserLike ? ", browser-like app" : "") + (target.scrollBar != nil ? ", settable scroll bar" : "")
@@ -36,6 +38,8 @@ enum DiagnosticsWriter {
             }
             return dir
         } catch {
+            // No half-written report left behind (only the folder made just now).
+            if created { try? FileManager.default.removeItem(at: dir) }
             return nil
         }
     }

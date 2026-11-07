@@ -84,7 +84,7 @@ struct SettingsView: View {
                 }
                 .labelsHidden().frame(width: 200)
             }
-            hint("Chrome also adds the site's domain. Private windows and password fields never add anything, and browsers that can't show whether a window is private use only the app and date.")
+            hint("Browsers also add the site's domain. Nothing is added from a password field that has the keyboard, or from a Chrome Incognito window.")
             row("Also save as") {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("PNG", isOn: $settings.saveToFolder)
@@ -157,7 +157,7 @@ struct SettingsView: View {
             if settings.keepDiagnostics {
                 row("Save reports to") {
                     HStack {
-                        Text(settings.diagnosticsFolder?.lastPathComponent ?? "Next to the capture").lineLimit(1).truncationMode(.middle)
+                        Text(settings.diagnosticsFolder?.lastPathComponent ?? "Next to the capture (or in the save folder)").lineLimit(1).truncationMode(.middle)
                         Button("Choose…", action: chooseDiagnosticsFolder)
                         if settings.diagnosticsFolder != nil {
                             Button("Next to the Capture") { settings.diagnosticsFolder = nil }
@@ -225,6 +225,9 @@ struct HotkeyRecorder: View {
 
     func start() {
         recording = true
+        // A registered hotkey would fire (and start a capture) before this field saw the keys.
+        HotKeys.shared.set(1, nil, action: {})
+        HotKeys.shared.set(2, nil, action: {})
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             if e.keyCode == 53 { stop(); return nil }                         // Esc
             if e.keyCode == 51 && allowNone { let old = hotkey; hotkey = nil; onChange(old); stop(); return nil }   // Delete
@@ -234,8 +237,10 @@ struct HotkeyRecorder: View {
     }
 
     func stop() {
+        let wasRecording = recording
         recording = false
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        if wasRecording { AppModel.shared.registerHotkeys() }
     }
 }

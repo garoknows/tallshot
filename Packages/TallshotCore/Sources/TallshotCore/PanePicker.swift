@@ -80,6 +80,18 @@ public enum PanePicker {
 
 /// Which window a capture is for, from the on-screen windows listed front to back.
 public enum WindowChoice {
+    /// Where to send scroll events. They go to whatever window is on top at that point, so:
+    /// `preferred` if the target window is on top there; else the spot the user pointed at, if
+    /// it's in the region and the target is on top there; else `preferred` anyway.
+    /// `frames` and `ids` are the on-screen windows, front to back.
+    public static func scrollPoint(preferred: CGPoint, probe: CGPoint, region: CGRect, frames: [CGRect], ids: [UInt32],
+                                   target: UInt32) -> CGPoint {
+        func onTop(_ p: CGPoint) -> Bool { frames.firstIndex { $0.contains(p) }.map { ids[$0] == target } ?? true }
+        if onTop(preferred) { return preferred }
+        if region.contains(probe), onTop(probe) { return probe }
+        return preferred
+    }
+
     /// With a pointer (the hotkey): the window under it. Without one (the menu, whose own items
     /// sit over whatever is behind them), or over no window: the front app's front window, then
     /// the frontmost window of any other app. Never Tallshot's own window unless pointed at.

@@ -118,7 +118,8 @@ public struct FrameAligner: Sendable {
     /// Works out how `b` relates to `a`. `expected` is roughly how far the page was asked to
     /// scroll, in pixels; it narrows the fallback search and breaks ties.
     public func align(_ a: PixelImage, _ b: PixelImage, expected: Int? = nil) -> Alignment {
-        precondition(a.width == b.width && a.height == b.height, "frames must be the same size")
+        // A window resized, or moved to a display with another scale, mid-capture: no line-up.
+        guard a.width == b.width && a.height == b.height else { return .uncertain(bestScore: 0) }
         let exact = align(a, b, expected: expected, levels: 0)
         guard case .uncertain = exact, parameters.nearMatchLevels > 0 else { return exact }
         let near = align(a, b, expected: expected, levels: parameters.nearMatchLevels)

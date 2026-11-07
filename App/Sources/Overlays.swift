@@ -73,6 +73,13 @@ enum Toast {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
+    /// Gone at once, with no fade.
+    static func hideNow() {
+        guard let w = current else { return }
+        current = nil
+        w.orderOut(nil)
+    }
+
     static func hide() {
         guard let w = current else { return }
         current = nil

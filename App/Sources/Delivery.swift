@@ -64,7 +64,7 @@ enum Delivery {
         let folder = settings.folderURL
         var plan = Plan(settings: settings, baseName: baseName)
         let exts = [plan.png ? "png" : nil, plan.pdf ? "pdf" : nil, plan.docx ? "docx" : nil, plan.md ? "md" : nil].compactMap { $0 }
-        plan.baseName = ExportFiles.uniqueBaseName(plan.baseName, extensions: exts, folder: folder)
+        plan.baseName = ExportFiles.uniqueBaseName(plan.baseName, extensions: exts, folder: folder, ending: CaptureName.ending)
         let input = Input(image: image, colorSpace: colorSpace, accessibilityText: accessibilityText)
         let p = plan
         let built = await Task.detached(priority: .userInitiated) { build(input, p) }.value
@@ -72,10 +72,11 @@ enum Delivery {
         var outcome = Outcome(thumbnail: built.thumbnailSource.flatMap(thumbnail), error: built.error,
                               textSource: built.textSource, notes: built.notes)
         if !built.files.isEmpty {
-            do {
-                outcome.files = try ExportFiles.write(built.files, baseName: plan.baseName, folder: folder)
-            } catch {
-                outcome.error = "Couldn't save to \(folder.lastPathComponent): \(error.localizedDescription)"
+            let written = ExportFiles.write(built.files, baseName: plan.baseName, folder: folder)
+            outcome.files = written.files
+            if let error = written.error {
+                let kept = written.files.isEmpty ? "" : " Only some files were saved."
+                outcome.error = "Couldn't save to \(folder.lastPathComponent): \(error.localizedDescription)\(kept)"
             }
         }
         if plan.copyText, let text = built.clipboardText {
@@ -149,12 +150,15 @@ enum Delivery {
 
     /// A small preview of the top of the capture for the pop-up.
     static func thumbnail(_ cg: CGImage) -> NSImage? {
-        let w = 88, h = min(cg.height, Int(Double(cg.width) * 128 / 88))
+        guard cg.width > 0, cg.height > 0 else { return nil }
+        let h = min(cg.height, Int(Double(cg.width) * 128 / 88))
         guard let top = cg.cropping(to: CGRect(x: 0, y: 0, width: cg.width, height: h)) else { return nil }
-        let out = NSImage(size: NSSize(width: w, height: 128))
+        // Keep the shape: a short capture gets a short thumbnail, not a stretched one.
+        let drawn = max(1, (88 * CGFloat(h) / CGFloat(cg.width)).rounded())
+        let out = NSImage(size: NSSize(width: 88, height: 128))
         out.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .high
-        NSImage(cgImage: top, size: .zero).draw(in: NSRect(x: 0, y: 0, width: w, height: 128))
+        NSImage(cgImage: top, size: .zero).draw(in: NSRect(x: 0, y: 128 - drawn, width: 88, height: drawn))
         out.unlockFocus()
         return out
     }

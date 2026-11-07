@@ -285,6 +285,7 @@ public final class CaptureSession {
         var rescrolledToTop = false
         var methodCompared = false
         var compareFrom: (method: ScrollMethod, ratio: Double)? = nil
+        var flipTried = false, flippedForTry = false
         var firstHeader = 0, lastFooter = 0
         var movingColumns: Range<Int>? = nil
 
@@ -394,6 +395,7 @@ public final class CaptureSession {
                    case .moved = aligner.align(frame, stitcher.last, expected: want) {
                     // The page went up instead of down: flip, come back, carry on.
                     driver.reverseScrollDirection()
+                    flippedForTry = false
                     try await driver.scroll(pixels: sent)
                     _ = try await settledFrame()
                     continue
@@ -401,8 +403,24 @@ public final class CaptureSession {
             }
 
             if stitcher.steps == 0 && result == .noMovement {
-                // The very first scroll moved nothing. Never report that as the bottom: try the
-                // next way of scrolling, and if nothing works, say so.
+                // The very first scroll moved nothing. Never report that as the bottom. At the
+                // top of a page, a reversed scroll direction looks just like this: try the other
+                // direction once. (At the real bottom that scroll goes up, and the direction check
+                // above flips back and scrolls back.) Then the next way of scrolling; if nothing
+                // works, say so.
+                if !flipTried && !options.fromTop {
+                    flipTried = true
+                    flippedForTry = true
+                    driver.reverseScrollDirection()
+                    directionChecked = false
+                    continue
+                }
+                if flippedForTry {
+                    // That moved nothing either: the app ignores this way of scrolling. Put the
+                    // direction back before trying the next one.
+                    flippedForTry = false
+                    driver.reverseScrollDirection()
+                }
                 if selectNext(after: method) {
                     directionChecked = false
                     continue
@@ -427,18 +445,20 @@ public final class CaptureSession {
                 failures = 0
                 learn(wanted: want, measured: layout.offset)
                 let ratio = Double(layout.offset) / Double(max(1, want))
+                // How far this way of scrolling goes per pixel actually sent, before any correction,
+                // so two ways are compared fairly.
+                let raw = Double(layout.offset) / Double(max(1, sent))
                 accept(frame, layout)
 
                 // Try another way of scrolling once if this one lands far from the request, and
                 // keep whichever lands closer.
-                let off = farness(ratio)
                 if !methodCompared {
                     if let c = compareFrom {
                         methodCompared = true
-                        if farness(c.ratio) < off { _ = select(c.method) }
+                        if farness(c.ratio) <= farness(raw) { _ = select(c.method) }   // a tie keeps the first
                     } else if ratio > 1.6, method == .gesture || method == .wheelPixels {
                         let other: ScrollMethod = method == .gesture ? .wheelPixels : .gesture
-                        if driver.setScrollMethod(other) { compareFrom = (method, ratio); method = other } else { methodCompared = true }
+                        if driver.setScrollMethod(other) { compareFrom = (method, raw); method = other } else { methodCompared = true }
                     }
                 }
 

@@ -22,6 +22,7 @@ public enum TextRecognition {
         let tileH = max(1200, Int(Double(W) * 1.4)), overlap = 160
         var out: [TextLine] = []
         var top = 0
+        let page = pixels.map(background)   // once per image: never carried over from another capture
         while top < H {
             let bottom = min(H, top + tileH)
             guard let tile = image.cropping(to: CGRect(x: 0, y: top, width: W, height: bottom - top)) else { break }
@@ -39,7 +40,7 @@ public enum TextRecognition {
                 let y = Double(top) + (1 - Double(b.maxY)) * th, h = Double(b.height) * th
                 let cy = y + h / 2
                 guard cy >= keepFrom && cy < keepTo else { continue }
-                out.append(TextLine(text: text, x: x, y: y, width: w, height: h, onShade: pixels.map { shaded($0, x: x, y: y, w: w, h: h) } ?? false))
+                out.append(TextLine(text: text, x: x, y: y, width: w, height: h, onShade: pixels.map { shaded($0, page: page ?? 0, x: x, y: y, w: w, h: h) } ?? false))
             }
             if bottom == H { break }
             top = bottom - overlap
@@ -48,8 +49,7 @@ public enum TextRecognition {
     }
 
     /// The most common color around a line differs from the page's: it sits on a shaded box.
-    static func shaded(_ img: PixelImage, x: Double, y: Double, w: Double, h: Double) -> Bool {
-        let page = background(img)
+    static func shaded(_ img: PixelImage, page: UInt32, x: Double, y: Double, w: Double, h: Double) -> Bool {
         let x0 = max(0, Int(x) - 4), x1 = min(img.width, Int(x + w) + 4)
         let y0 = max(0, Int(y) - 2), y1 = min(img.height, Int(y + h) + 2)
         guard x1 > x0, y1 > y0 else { return false }
@@ -61,17 +61,13 @@ public enum TextRecognition {
 
     static func brightness(_ p: UInt32) -> Int { Int(p & 0xFF) + Int((p >> 8) & 0xFF) + Int((p >> 16) & 0xFF) }
 
-    nonisolated(unsafe) static var cache: (Int, UInt32)?
+    /// The page's most common color.
     static func background(_ img: PixelImage) -> UInt32 {
-        let key = img.width &* 31 &+ img.height
-        if let c = cache, c.0 == key { return c.1 }
         var counts: [UInt32: Int] = [:]
         for y in stride(from: 0, to: img.height, by: max(1, img.height / 400)) {
             for x in stride(from: 0, to: img.width, by: max(1, img.width / 100)) { counts[img[x, y], default: 0] += 1 }
         }
-        let bg = counts.max { $0.value < $1.value }?.key ?? 0
-        cache = (key, bg)
-        return bg
+        return counts.max { $0.value < $1.value }?.key ?? 0
     }
 
     /// The document from recognized text: structure rebuilt from the layout.

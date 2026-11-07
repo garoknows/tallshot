@@ -1,29 +1,29 @@
 import Foundation
 
-/// The name a capture's files share: what's in them, then when it was taken. For example
-/// "Notes - Trip plan - 2026-11-06 at 14.05" or "Google Chrome - example.com - Docs - 2026-11-06 at 14.05".
+/// The name a capture's files share: what's in them, when it was taken, then "Tallshot". For example
+/// "Notes - Trip plan - 2026-11-06 at 14.05 - Tallshot" or
+/// "Arc - example.com - Docs - 2026-11-06 at 14.05 - Tallshot".
 ///
-/// Privacy comes first. A title or domain goes in only when nothing suggests it is private:
-/// when in doubt the name is just the app and the date.
+/// A title or domain is left out when a password field has the keyboard or the title says the
+/// window is private (Chrome's Incognito, for example).
 public enum CaptureName {
     public enum AppKind: Sendable {
-        /// Not a web browser, so it has no private windows to tell apart.
+        /// Not a web browser: the title only, no domain.
         case ordinary
-        /// A browser whose private windows can be told apart by their window title.
-        case checkableBrowser
-        /// A browser with no known way to tell a private window from a normal one. Nothing about
-        /// its windows is read or used.
-        case uncheckableBrowser
+        /// A web browser: the page's domain and title.
+        case browser
+        /// Chrome, whose window title says "(Incognito)" for a private window. Its title is used
+        /// only when it has the form a normal window's has.
+        case chrome
     }
 
-    /// Browsers whose private windows say so in the window title macOS reports.
-    public static let checkableBrowsers: Set<String> = [
+    public static let chromeIDs: Set<String> = [
         "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
     ]
 
     public static func kind(bundleID: String?, isBrowser: Bool) -> AppKind {
-        if let bundleID, checkableBrowsers.contains(bundleID) { return .checkableBrowser }
-        return isBrowser ? .uncheckableBrowser : .ordinary
+        if let bundleID, chromeIDs.contains(bundleID) { return .chrome }
+        return isBrowser ? .browser : .ordinary
     }
 
     public struct Facts: Sendable {
@@ -33,7 +33,7 @@ public enum CaptureName {
         public var pageURL: String?
         /// A password field has the keyboard. Only the field's type is known, never its contents.
         public var passwordFieldFocused: Bool
-        /// The browser's private-window label is only recognized in English.
+        /// Chrome's Incognito label is only recognized in English.
         public var englishLanguage: Bool
 
         public init(appName: String, kind: AppKind, title: String? = nil, pageURL: String? = nil,
@@ -47,21 +47,24 @@ public enum CaptureName {
         }
     }
 
-    /// "Tallshot 2026-10-31 at 14.05.22"
+    /// Every name ends with this, so Tallshot's files are easy to find.
+    public static let ending = " - Tallshot"
+
+    /// "2026-10-31 at 14.05.22 - Tallshot"
     public static func plain(date: Date) -> String {
-        "Tallshot \(format(date, "yyyy-MM-dd 'at' HH.mm.ss"))"
+        format(date, "yyyy-MM-dd 'at' HH.mm.ss") + ending
     }
 
-    /// "App - domain - title - 2026-10-31 at 14.05", leaving out whatever can't be used.
+    /// "App - domain - title - 2026-10-31 at 14.05 - Tallshot", leaving out whatever can't be used.
     public static func descriptive(_ facts: Facts, date: Date) -> String {
         let when = format(date, "yyyy-MM-dd 'at' HH.mm")
         let app = trim(clean(facts.appName), characters: 30, bytes: 60)
         let shown = usable(facts)
         let domain = shown.domain.map { trim($0, characters: 60, bytes: 60) } ?? ""
-        let start = [app.isEmpty ? "Tallshot" : app, domain].filter { !$0.isEmpty }
-        let others = (start + [when]).joined(separator: separator).utf8.count + separator.utf8.count
+        let start = [app, domain].filter { !$0.isEmpty }
+        let others = (start + [when]).joined(separator: separator).utf8.count + separator.utf8.count + ending.utf8.count
         let title = shown.title.map { trim(clean($0), characters: maxTitleCharacters, bytes: max(0, maxBytes - others)) } ?? ""
-        return (start + [title, when]).filter { !$0.isEmpty }.joined(separator: separator)
+        return (start + [title, when]).filter { !$0.isEmpty }.joined(separator: separator) + ending
     }
 
     /// Just the host of a web address, without "www.". Never the path, query or any login in it.
@@ -98,6 +101,8 @@ public enum CaptureName {
     private static let maxBytes = 220
     private static let refused = CharacterSet(charactersIn: "/\\:*?\"<>|")
     private static let privateMarkers = ["incognito", "private browsing", "inprivate"]
+    /// Browsers whose window title ends with a longer name than the app's.
+    private static let longNames = ["Firefox": "Mozilla Firefox"]
 
     private static func usable(_ facts: Facts) -> (title: String?, domain: String?) {
         guard !facts.passwordFieldFocused, let title = facts.title?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -105,11 +110,13 @@ public enum CaptureName {
         let lower = title.lowercased()
         if privateMarkers.contains(where: { lower.contains($0) }) { return (nil, nil) }
         switch facts.kind {
-        case .uncheckableBrowser:
-            return (nil, nil)
         case .ordinary:
             return (withoutAppName(title, app: facts.appName), nil)
-        case .checkableBrowser:
+        case .browser:
+            var t: String? = title
+            if let long = longNames[facts.appName] { t = t.flatMap { withoutAppName($0, app: long) } }
+            return (t.flatMap { withoutAppName($0, app: facts.appName) }, domain(from: facts.pageURL))
+        case .chrome:
             // A normal window's title ends with the browser's name. Anything else might be a
             // private window whose label looks different, so it isn't used.
             guard facts.englishLanguage, title.hasSuffix(separator + facts.appName) else { return (nil, nil) }

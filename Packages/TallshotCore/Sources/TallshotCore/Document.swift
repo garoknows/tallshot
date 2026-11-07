@@ -69,7 +69,10 @@ public enum Markdown {
             case .listItem(let level, let ordered, let spans):
                 out.append(String(repeating: "  ", count: max(0, level)) + (ordered ? "1. " : "- ") + inline(spans))
             case .code(let text):
-                let fence = text.contains("```") ? "~~~" : "```"
+                // A fence longer than any run of backticks in the code, so the code can't close it.
+                let longest = text.split(separator: "\n", omittingEmptySubsequences: false)
+                    .map { line in line.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0 }.max() ?? 0
+                let fence = String(repeating: "`", count: max(3, longest + 1))
                 out.append(fence); out.append(text); out.append(fence)
             }
             previousWasList = isList
@@ -80,16 +83,32 @@ public enum Markdown {
     static func inline(_ spans: [Inline]) -> String {
         spans.map { s in
             let t = escape(s.text)
-            guard let link = s.link, !link.isEmpty else { return t }
-            return "[\(t)](\(link.replacingAll(" ", with: "%20")))"
+            guard let link = s.link.flatMap(safeLink) else { return t }
+            return "[\(t)](\(link))"
         }.joined()
     }
 
     /// Escapes the few characters that would change meaning at the start of a line or in a link.
     static func escape(_ s: String) -> String {
         var t = s.replacingAll("\n", with: " ")
-        for c in ["\\", "[", "]", "*", "_", "`"] { t = t.replacingAll(c, with: "\\" + c) }
-        if let f = t.first, "#>+-".contains(f) { t = "\\" + t }
+        for c in ["\\", "[", "]", "*", "_", "`", "<"] { t = t.replacingAll(c, with: "\\" + c) }
+        if let f = t.first, "#>+-|".contains(f) { t = "\\" + t }
+        // "2024. Results" would start a numbered list.
+        let digits = t.prefix(while: { $0.isASCII && $0.isNumber })
+        if !digits.isEmpty, let next = t.dropFirst(digits.count).first, next == "." || next == ")" {
+            t = digits + "\\" + t.dropFirst(digits.count)
+        }
+        return t
+    }
+
+    /// Web and mail links only, with the characters that would end the link encoded.
+    static func safeLink(_ link: String) -> String? {
+        let lower = link.lowercased()
+        guard ["http://", "https://", "mailto:"].contains(where: { lower.hasPrefix($0) }) else { return nil }
+        var t = link
+        for (c, code) in [("\n", ""), ("\r", ""), (" ", "%20"), ("(", "%28"), (")", "%29"), ("<", "%3C"), (">", "%3E")] {
+            t = t.replacingAll(c, with: code)
+        }
         return t
     }
 }

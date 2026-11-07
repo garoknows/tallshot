@@ -16,10 +16,11 @@ final class PermissionWatcher: ObservableObject {
 
     func start() {
         timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect().sink { [weak self] _ in
+            guard let self else { return }
             MainActor.assumeIsolated {
-                self?.screen = Permissions.screenRecording
-                self?.accessibility = Permissions.accessibility
-                self?.checkForStaleAnswer()
+                self.screen = Permissions.screenRecording
+                self.accessibility = Permissions.accessibility
+                self.checkForStaleAnswer()
             }
         }
     }
@@ -28,8 +29,8 @@ final class PermissionWatcher: ObservableObject {
         guard !screen else { freshProcessReads = nil; return }
         guard !asking else { return }
         asking = true
-        Permissions.askFreshProcessAboutScreenRecording { answer in
-            Task { @MainActor [weak self] in
+        Permissions.askFreshProcessAboutScreenRecording { [weak self] answer in
+            Task { @MainActor in
                 self?.freshProcessReads = answer
                 self?.asking = false
             }
