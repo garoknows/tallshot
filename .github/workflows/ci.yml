@@ -17,9 +17,10 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0   # the secret scan reads the commits being pushed
+          persist-credentials: false
 
       - name: Show toolchain
         run: |
@@ -35,7 +36,7 @@ jobs:
 
       - name: Generate the Xcode project from project.yml
         run: |
-          brew install xcodegen
+          PATH="$(scripts/install-xcodegen.sh "$RUNNER_TEMP/xcodegen"):$PATH"
           xcodegen generate
 
       - name: Build app (Release, ad hoc signed)
@@ -59,7 +60,7 @@ jobs:
           done
 
       - name: Keep the compiled icon for checking
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: icon-check
           path: icon-check
@@ -69,6 +70,6 @@ jobs:
         run: scripts/check-privacy.sh build.nosync/dd/Build/Products/Release/Tallshot.app
 
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
