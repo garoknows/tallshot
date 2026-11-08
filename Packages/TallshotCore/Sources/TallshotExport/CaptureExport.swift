@@ -64,7 +64,7 @@ public enum CaptureExport {
 
         if plan.pdf {
             let pages = PDFExport.pages(for: image, pageSize: plan.pageSize)
-            if let pdf = PDFExport.make(image: cg, pages: pages, lines: lines, pageSize: plan.pageSize, title: plan.baseName) {
+            if let pdf = PDFExport.make(image: cg, pages: pages, lines: lines, pageSize: plan.pageSize) {
                 out.files.append(("pdf", pdf))
             } else {
                 out.notes.append("Couldn't make the PDF.")

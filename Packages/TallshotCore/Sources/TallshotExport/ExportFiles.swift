@@ -23,8 +23,8 @@ public enum ExportFiles {
     }
 
     /// Writes each (extension, data) as "<baseName>.<extension>" in `folder`, never overwriting.
-    /// Pick the name with `uniqueBaseName` first: it isn't changed here, so the name inside the
-    /// files (the PDF title, the Markdown image link) stays right. On a failure, the files already
+    /// Pick the name with `uniqueBaseName` first: it isn't changed here, so the Markdown file's
+    /// link to the PNG stays right. On a failure, the files already
     /// saved are kept and returned, and a partly written file of its own is removed.
     public static func write(_ files: [(ext: String, data: Data)], baseName: String, folder: URL) -> Written {
         var out = Written()

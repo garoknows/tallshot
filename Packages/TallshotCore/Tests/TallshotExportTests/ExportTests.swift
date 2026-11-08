@@ -170,7 +170,7 @@ struct PDFTests {
         for p in pages.dropLast() { #expect(blank[p.upperBound - 1] && blank[p.upperBound], "cut through text at row \(p.upperBound)") }
         // The text layer, from known line positions (independent of Vision).
         let lines = (0..<160).map { i in TextLine(text: "Paragraph \(i) about the quarterly plan", x: 40, y: 30 + Double(i) * 62, width: 400, height: 24) }
-        let data = try #require(PDFExport.make(image: cg, pages: pages, lines: lines, pageSize: .letter, title: "Test"))
+        let data = try #require(PDFExport.make(image: cg, pages: pages, lines: lines, pageSize: .letter))
         let pdf = try #require(PDFDocument(data: data))
         #expect(pdf.pageCount == pages.count)
         let text = pdf.string ?? ""
@@ -248,7 +248,7 @@ struct ExportPrivacyTests {
         let marker = "Unique marker \(UInt64.random(in: 1...UInt64.max))"
         let doc = ExportDocument(blocks: samplePage + [.paragraph([Inline(marker)])], source: .accessibility)
         let pages = PDFExport.pages(for: px, pageSize: .a4)
-        let pdf = try #require(PDFExport.make(image: cg, pages: pages, lines: [TextLine(text: marker, x: 10, y: 10, width: 300, height: 20)], pageSize: .a4, title: "t"))
+        let pdf = try #require(PDFExport.make(image: cg, pages: pages, lines: [TextLine(text: marker, x: 10, y: 10, width: 300, height: 20)], pageSize: .a4))
         let files: [(ext: String, data: Data)] = [("png", ImageBridge.png(cg)!), ("pdf", pdf), ("docx", Docx.make(doc)), ("md", Data(Markdown.render(doc).utf8))]
         // The chosen folder: a fresh one under the caches (the scan below skips it).
         let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Tallshot-build/export-test-\(UUID().uuidString)")
