@@ -27,10 +27,11 @@ else pass "No network code"; fi
 # Tallshot writes files in exactly two places, both into the folder the user chose:
 #  - ExportFiles.swift: the finished capture (PNG, and PDF / Word / Markdown if those are on),
 #    written straight into the folder (no temp copy elsewhere, never overwriting).
-#  - DiagnosticsWriter.swift: a report folder next to the capture or in the folder chosen for reports, only when the user turned on
-#    "Keep a diagnostic report" and a capture stopped early.
+#  - DiagnosticsReport.swift: a report folder next to the capture or in the folder chosen for
+#    reports, only when the user turned on "Keep a diagnostic report" and a capture stopped early
+#    (the app's DiagnosticsWriter calls it, guarded by that setting; checked below).
 WRITES='\.write\(to|\.write\(toFile|FileManager\.default\.create|createFile|copyItem|\bmoveItem|replaceItem|linkItem|FileHandle|fopen|mkstemp|NSKeyedArchiver|CGImageDestinationCreateWithURL|CGPDFContextCreateWithURL|CGDataConsumer\(url'
-OTHER=$(grep -rn -E "$WRITES" "${SRC[@]}" | grep -v 'Sources/TallshotExport/ExportFiles.swift:.*write(to: url, options: .withoutOverwriting)' | grep -v 'App/Sources/DiagnosticsWriter.swift:')
+OTHER=$(grep -rn -E "$WRITES" "${SRC[@]}" | grep -v 'Sources/TallshotExport/ExportFiles.swift:.*write(to: url, options: .withoutOverwriting)' | grep -v 'Sources/TallshotExport/DiagnosticsReport.swift:')
 if [ -n "$OTHER" ]; then bad "File writes outside the export writer and the opt-in diagnostics:"; echo "$OTHER"
 else pass "Only file writes: the capture's files, and the opt-in diagnostic report, both in the chosen folder"; fi
 ATOMIC='\.atomic\b|atomically: *true'
@@ -41,6 +42,9 @@ if grep -q 'DiagnosticsWriter.write' <<< "$DIAG" && \
    grep -q 'DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics' <<< "$DIAG"; then
   pass "Diagnostic report written only when its setting is on (and it is off by default)"
 else bad "DiagnosticsWriter.write is not guarded by the keepDiagnostics setting"; fi
+REPORT=$(grep -rln 'DiagnosticsReport.write' "$ROOT/App/Sources")
+[ "$REPORT" = "$ROOT/App/Sources/DiagnosticsWriter.swift" ] && pass "Diagnostic report written only through DiagnosticsWriter" \
+  || bad "DiagnosticsReport.write called from somewhere other than DiagnosticsWriter: $REPORT"
 grep -q 'Keys.diagnostics: false' "$ROOT/App/Sources/Settings.swift" && pass "Diagnostics setting defaults to off" || bad "Diagnostics setting is not off by default"
 TEMP='NSTemporaryDirectory|temporaryDirectory|cachesDirectory|itemReplacementDirectory|applicationSupportDirectory|URLCache|"/tmp|"/var/'
 if grep -rn -E "$TEMP" "${SRC[@]}" >/dev/null; then

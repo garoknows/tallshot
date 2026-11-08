@@ -3,8 +3,9 @@ import TallshotCore
 import TallshotExport
 
 /// Puts a finished capture where the user asked: the clipboard and the save folder, nowhere else.
-/// Every format is built in memory first (off the main thread), then written together into the
-/// chosen folder under one base name (see `CaptureName`), with ".png", ".pdf", ".docx", ".md".
+/// Every format is built in memory first (off the main thread, by `CaptureExport`), then written
+/// together into the chosen folder under one base name (see `CaptureName`), with ".png", ".pdf",
+/// ".docx", ".md".
 @MainActor
 enum Delivery {
     struct Outcome {
@@ -21,53 +22,22 @@ enum Delivery {
         var file: URL? { files["png"] ?? files["pdf"] ?? files["docx"] ?? files["md"] }
     }
 
-    /// What to make, decided on the main thread from the settings.
-    struct Plan: Sendable {
-        var png: Bool, pdf: Bool, docx: Bool, md: Bool
-        var copyImage: Bool, copyText: Bool
-        var pageSize: PageSize
-        var wordImage: Bool
-        var baseName: String
-
-        @MainActor init(settings: Settings, baseName: String) {
-            png = settings.saveToFolder; pdf = settings.savePDF; docx = settings.saveDOCX; md = settings.saveMarkdown
-            copyImage = settings.copyToClipboard && settings.copyAs == .image
-            copyText = settings.copyToClipboard && settings.copyAs == .text
-            pageSize = settings.pdfPageSize; wordImage = settings.wordIncludesImage
-            self.baseName = baseName
-        }
-
-        var needsText: Bool { docx || md || copyText }
-    }
-
-    /// Everything built in memory, before anything is written.
-    struct Built: @unchecked Sendable {
-        var files: [(ext: String, data: Data)] = []
-        var clipboardPNG: Data?
-        var clipboardText: String?
-        var thumbnailSource: CGImage?
-        var textSource: TextSource?
-        var notes: [String] = []
-        var error: String?
-    }
-
     struct Input: @unchecked Sendable {
         var image: PixelImage
         var colorSpace: CGColorSpace
         var accessibilityText: ExportDocument?
     }
 
-    static func pngData(_ cg: CGImage) -> Data? { ImageBridge.png(cg) }
-
     static func deliver(_ image: PixelImage, colorSpace: CGColorSpace, settings: Settings, accessibilityText: ExportDocument?,
                         baseName: String) async -> Outcome {
         let folder = settings.folderURL
-        var plan = Plan(settings: settings, baseName: baseName)
-        let exts = [plan.png ? "png" : nil, plan.pdf ? "pdf" : nil, plan.docx ? "docx" : nil, plan.md ? "md" : nil].compactMap { $0 }
-        plan.baseName = ExportFiles.uniqueBaseName(plan.baseName, extensions: exts, folder: folder, ending: CaptureName.ending)
+        var plan = CaptureExport.Plan(settings: settings, baseName: baseName)
+        plan.baseName = ExportFiles.uniqueBaseName(plan.baseName, extensions: plan.extensions, folder: folder, ending: CaptureName.ending)
         let input = Input(image: image, colorSpace: colorSpace, accessibilityText: accessibilityText)
         let p = plan
-        let built = await Task.detached(priority: .userInitiated) { build(input, p) }.value
+        let built = await Task.detached(priority: .userInitiated) {
+            CaptureExport.build(input.image, colorSpace: input.colorSpace, accessibilityText: input.accessibilityText, plan: p)
+        }.value
 
         var outcome = Outcome(thumbnail: built.thumbnailSource.flatMap(thumbnail), error: built.error,
                               textSource: built.textSource, notes: built.notes)
@@ -95,57 +65,6 @@ enum Delivery {
             outcome.copied = pb.writeObjects([item])
         }
         return outcome
-    }
-
-    /// Builds the PNG, PDF, Word and Markdown data. Runs off the main thread; touches no disk.
-    nonisolated static func build(_ input: Input, _ plan: Plan) -> Built {
-        var out = Built()
-        guard let cg = ImageBridge.cgImage(input.image, colorSpace: input.colorSpace), let png = ImageBridge.png(cg) else {
-            out.error = "Couldn't make the image."
-            return out
-        }
-        out.thumbnailSource = cg
-        if plan.png { out.files.append(("png", png)) }
-        if plan.copyImage || plan.copyText { out.clipboardPNG = png }
-
-        // The words: the accessibility tree's if it gave any, else text recognized on this Mac.
-        var doc = input.accessibilityText.flatMap { $0.hasText ? $0 : nil }
-        var lines: [TextLine] = []
-        let needLines = plan.pdf || (plan.needsText && doc == nil)
-        if needLines {
-            do { lines = try TextRecognition.lines(in: cg, pixels: input.image) } catch {
-                out.notes.append("Text recognition isn't available, so the PDF has no text layer.")
-            }
-        }
-        if plan.needsText && doc == nil, !lines.isEmpty { doc = TextRecognition.document(from: lines) }
-        out.textSource = plan.needsText ? doc?.source : nil
-
-        if plan.pdf {
-            let pages = PDFExport.pages(for: input.image, pageSize: plan.pageSize)
-            if let pdf = PDFExport.make(image: cg, pages: pages, lines: lines, pageSize: plan.pageSize, title: plan.baseName) {
-                out.files.append(("pdf", pdf))
-            } else {
-                out.notes.append("Couldn't make the PDF.")
-            }
-        }
-        let document = doc ?? ExportDocument(blocks: [], source: .recognized)
-        if plan.needsText && !document.hasText { out.notes.append("No text was found for Word or Markdown.") }
-        if plan.docx {
-            var pictures: [Docx.Picture] = []
-            if plan.wordImage {
-                for r in PDFExport.pages(for: input.image, pageSize: .letter) {
-                    guard let slice = cg.cropping(to: CGRect(x: 0, y: r.lowerBound, width: cg.width, height: r.count)),
-                          let data = ImageBridge.png(slice) else { continue }
-                    pictures.append(Docx.Picture(png: data, width: slice.width, height: slice.height))
-                }
-            }
-            out.files.append(("docx", Docx.make(document, pictures: pictures)))
-        }
-        if plan.md {
-            out.files.append(("md", Data(Markdown.render(document, imageFile: plan.png ? plan.baseName + ".png" : nil).utf8)))
-        }
-        if plan.copyText, document.hasText { out.clipboardText = Markdown.render(document) }
-        return out
     }
 
     /// A small preview of the top of the capture for the pop-up.
@@ -188,5 +107,15 @@ enum Delivery {
         f.numberStyle = .decimal
         f.locale = Locale(identifier: "en_US")
         return "\(f.string(from: NSNumber(value: n)) ?? "\(n)") px"
+    }
+}
+
+extension CaptureExport.Plan {
+    /// What to make, decided on the main thread from the settings.
+    @MainActor init(settings: Settings, baseName: String) {
+        self.init(png: settings.saveToFolder, pdf: settings.savePDF, docx: settings.saveDOCX, md: settings.saveMarkdown,
+                  copyImage: settings.copyToClipboard && settings.copyAs == .image,
+                  copyText: settings.copyToClipboard && settings.copyAs == .text,
+                  pageSize: settings.pdfPageSize, wordImage: settings.wordIncludesImage, baseName: baseName)
     }
 }
