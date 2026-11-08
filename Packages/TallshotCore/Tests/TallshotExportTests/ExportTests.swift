@@ -265,19 +265,16 @@ struct ExportPrivacyTests {
         #expect(second == "Notes - Trip plan - 2026-10-31 at 14.05 2 - Tallshot")
         let again = ExportFiles.write(files, baseName: second, folder: folder)
         #expect(again.files["md"]?.lastPathComponent == "Notes - Trip plan - 2026-10-31 at 14.05 2 - Tallshot.md")
-        // Nothing else, anywhere in temp or caches, holds the exported words or pixels.
-        let needles = [Data(marker.utf8), px.row(px.height / 2).withUnsafeBytes { Data($0) }]
-        let roots = [FileManager.default.temporaryDirectory, FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]]
-        for root in roots {
-            guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                                                         options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { continue }
-            while let url = e.nextObject() as? URL {
-                if url.path.hasPrefix(folder.path) { e.skipDescendants(); continue }
-                guard let v = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]), v.isRegularFile == true,
-                      let m = v.contentModificationDate, m >= started, let data = try? Data(contentsOf: url, options: .alwaysMapped) else { continue }
-                #expect(!needles.contains { data.range(of: $0) != nil }, "export content found in \(url.lastPathComponent)")
-            }
+        // Nothing else holds the exported words or pixels. The search decodes PNGs, unpacks PDF
+        // streams and unzips Word files (their data is compressed), and must first find them in
+        // the chosen folder, or it proves nothing.
+        let scanner = DiskScanner(texts: [marker], rows: [Array(px.row(px.height / 2))])
+        for ext in exts {
+            let data = try Data(contentsOf: folder.appendingPathComponent("\(name).\(ext)"))
+            #expect(!scanner.findings(in: data).isEmpty, "the search can't see the content of the .\(ext)")
         }
+        let hits = scanner.scan(PrivacyTests.placesToSearch, topLevelOnly: [PrivacyTests.desktop], changedSince: started, skipping: [folder])
+        for (path, what) in hits { Issue.record("export \(what.sorted().joined(separator: " and ")) found outside the chosen folder: \(path)") }
     }
 
     @Test func aFailedSaveKeepsAndReportsWhatWasSaved() throws {
