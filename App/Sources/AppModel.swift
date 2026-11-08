@@ -69,6 +69,9 @@ final class AppModel: ObservableObject {
     private init() {}
 
     func start() {
+        // A time limit for every accessibility question Tallshot asks another app, so one that has
+        // stopped responding can't hold Tallshot up for long (macOS's default is 6 seconds).
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
         registerHotkeys()
         if !Permissions.allGranted || !settings.setupShown { WindowRouter.shared.showSetup() }
     }

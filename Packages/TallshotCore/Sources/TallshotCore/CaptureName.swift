@@ -21,8 +21,10 @@ public enum CaptureName {
         "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
     ]
 
+    /// Chrome itself, and the web apps installed from it ("com.google.Chrome.app.…"), whose
+    /// windows are Chrome windows with the web app's title.
     public static func kind(bundleID: String?, isBrowser: Bool) -> AppKind {
-        if let bundleID, chromeIDs.contains(bundleID) { return .chrome }
+        if let bundleID, chromeIDs.contains(bundleID) || bundleID.hasPrefix("com.google.Chrome.") { return .chrome }
         return isBrowser ? .browser : .ordinary
     }
 
@@ -117,9 +119,11 @@ public enum CaptureName {
             if let long = longNames[facts.appName] { t = t.flatMap { withoutAppName($0, app: long) } }
             return (t.flatMap { withoutAppName($0, app: facts.appName) }, domain(from: facts.pageURL))
         case .chrome:
-            // A normal window's title ends with the browser's name. Anything else might be a
-            // private window whose label looks different, so it isn't used.
-            guard facts.englishLanguage, title.hasSuffix(separator + facts.appName) else { return (nil, nil) }
+            // A normal window's title ends with the browser's name ("Google Chrome", "Google Chrome
+            // Beta"). Anything else might be a private window whose label looks different, or an
+            // installed web app's window, so it isn't used.
+            guard facts.englishLanguage, facts.appName.hasPrefix("Google Chrome"),
+                  title.hasSuffix(separator + facts.appName) else { return (nil, nil) }
             return (withoutAppName(title, app: facts.appName), domain(from: facts.pageURL))
         }
     }
