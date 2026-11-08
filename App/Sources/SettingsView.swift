@@ -140,6 +140,7 @@ struct SettingsView: View {
                 }
                 .labelsHidden().frame(width: 140)
             }
+            hint("Wide captures stop sooner, at 50 million pixels in all (about 14,400 px tall across a 16-inch MacBook Pro's full screen), so memory stays well under 1 GB.")
             if settings.maxHeight >= 50_000 {
                 hint("Very tall images may be shrunk by chat apps when you paste them. The PDF keeps them readable, page by page.")
             }

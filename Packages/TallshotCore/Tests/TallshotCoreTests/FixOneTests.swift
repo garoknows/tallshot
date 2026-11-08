@@ -279,7 +279,7 @@ struct BarcodeCheckTests {
 }
 
 extension StopReason {
-    static let allCasesEarly: [StopReason] = [.heightCap, .timeCap, .cancelled, .lostTrack, .didNotScroll]
+    static let allCasesEarly: [StopReason] = [.heightCap, .sizeCap, .timeCap, .cancelled, .lostTrack, .didNotScroll]
 }
 
 @Suite("Overshoot", .serialized)

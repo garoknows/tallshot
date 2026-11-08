@@ -38,6 +38,11 @@ public struct CaptureOptions: Sendable, Equatable {
     public var cautiousStartFraction: Double? = nil
     /// Stop at this many pixels tall.
     public var maxHeight = 30_000
+    /// Stop at this many pixels in all (width × height), whatever the height limit. 50 million
+    /// pixels is 200 MB of image; with the room the image grows into and the files made from it,
+    /// a capture stays well under 1 GB of memory. On a 16-inch MacBook Pro's full screen width
+    /// (3456 pixels) that is about 14,400 pixels tall; a narrower pane gets taller.
+    public var maxPixels = 50_000_000
     /// Stop after this many seconds.
     public var maxSeconds = 60.0
     /// Time between the two quick captures that confirm the page has settled.
@@ -63,6 +68,8 @@ public enum StopReason: String, Sendable, Equatable {
     /// Reached the bottom: a scroll moved nothing, twice in a row.
     case bottom
     case heightCap
+    /// The image reached `maxPixels` (it is wide as well as tall).
+    case sizeCap
     case timeCap
     case cancelled
     /// A step could not be lined up even after walking back; kept what was safe.
@@ -80,6 +87,7 @@ public enum StopReason: String, Sendable, Equatable {
         switch self {
         case .bottom: nil
         case .heightCap: "Stopped at the height limit"
+        case .sizeCap: "Stopped at the size limit"
         case .timeCap: "Stopped at the time limit"
         case .cancelled: "Stopped early"
         case .lostTrack: "Capture stopped early"
@@ -92,6 +100,7 @@ public enum StopReason: String, Sendable, Equatable {
         switch self {
         case .bottom: ""
         case .heightCap: "The page goes on. Raise the height limit in Settings to get more."
+        case .sizeCap: "The page goes on. This is the biggest image Tallshot makes at this width. Capture a narrower window or pane to get more."
         case .timeCap: "The page goes on. Raise the time limit in Settings to get more."
         case .cancelled: "You moved the mouse or pressed a key. Kept what was captured."
         case .lostTrack: "The page jumped or changed while scrolling and couldn't be lined up. Kept only the part that lined up."
@@ -273,6 +282,11 @@ public final class CaptureSession {
         driver.contentSettled()
         var stitcher = Stitcher(first: first)
         let H = first.height, W = first.width
+        // The tallest the image may get: the height limit, or less for a wide image so its total
+        // pixels stay within the budget. Never less than one screen.
+        let byPixels = max(H, options.maxPixels / max(1, W))
+        let heightLimit = min(options.maxHeight, byPixels)
+        let limitReason: StopReason = byPixels < options.maxHeight ? .sizeCap : .heightCap
         let target = options.stepFraction
         var fraction = options.cautiousStartFraction.map { min($0, target) } ?? target
         var want = max(1, Int(Double(H) * min(options.firstStepFraction, fraction)))
@@ -301,7 +315,7 @@ public final class CaptureSession {
 
         func finish(_ reason: StopReason) -> CaptureResult {
             var footer = lastFooter
-            if stitcher.image.height > options.maxHeight { stitcher.cap(height: options.maxHeight); footer = 0 }
+            if stitcher.image.height > heightLimit { stitcher.cap(height: heightLimit); footer = 0 }
             var image = stitcher.image
             var cropped: Range<Int>? = nil
             if options.cropToMovingColumns, let span = movingColumns {
@@ -369,7 +383,7 @@ public final class CaptureSession {
 
         while true {
             if driver.isCancelled { return finish(.cancelled) }
-            if stitcher.image.height >= options.maxHeight { return finish(.heightCap) }
+            if stitcher.image.height >= heightLimit { return finish(limitReason) }
             if driver.now - start >= options.maxSeconds { return finish(.timeCap) }
 
             let sent = try await scroll(wanted: want)

@@ -25,4 +25,32 @@ struct ReviewFixTests {
         // growing to exactly what's needed would grow (and copy everything) 300 times.
         #expect(growths <= 20, "the tall image grew \(growths) times in 300 steps")
     }
+
+    // Finding 5: a wide, tall capture must stop at a total pixel budget, not only a height.
+    @Test func aWideCaptureStopsAtThePixelBudget() async throws {
+        let w = SimulatedWindow(width: 360, height: 400, pageHeight: 12_000)
+        let budget = 360 * 3_000
+        let r = try await capture(w) { $0.maxHeight = 50_000; $0.maxPixels = budget }
+        #expect(r.reason == .sizeCap)
+        #expect(r.reason.isEarly)
+        #expect(r.reason.headline == "Stopped at the size limit")
+        #expect(r.image.width * r.image.height <= budget)
+        #expect(r.image.height == 3_000)
+        #expect(mismatch(r.image, w.expected(from: 0).rows(0..<3_000)) == nil)
+    }
+
+    @Test func theHeightLimitStillWinsWhenItIsLower() async throws {
+        let w = SimulatedWindow(width: 360, height: 400, pageHeight: 12_000)
+        let r = try await capture(w) { $0.maxHeight = 2_000; $0.maxPixels = 360 * 5_000 }
+        #expect(r.reason == .heightCap)
+        #expect(r.image.height == 2_000)
+    }
+
+    @Test func theDefaultBudgetKeepsAFullRetinaWidthUnderOneGigabyte() {
+        // A 16-inch MacBook Pro screen is 3456 pixels wide at its default Retina scale.
+        let o = CaptureOptions()
+        let bytes = o.maxPixels * 4
+        #expect(bytes <= 200_000_000)
+        #expect(o.maxPixels / 3456 >= 14_000)
+    }
 }
