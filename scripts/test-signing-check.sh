@@ -86,6 +86,8 @@ cat > "$W/bin/xcodebuild" <<'FAKE'
 #!/bin/bash
 while [ $# -gt 0 ]; do [ "$1" = -derivedDataPath ] && DD="$2"; shift; done
 mkdir -p "$DD/Build/Products/Release/Tallshot.app/Contents"; touch "$DD/Build/Products/Release/Tallshot.app/new-copy"
+plutil -create xml1 "$DD/Build/Products/Release/Tallshot.app/Contents/Info.plist"
+plutil -insert CFBundleIdentifier -string io.github.garoknows.tallshot "$DD/Build/Products/Release/Tallshot.app/Contents/Info.plist"
 FAKE
 printf '#!/bin/bash\n[ ! -e "%s/killed" ]\n' "$W" > "$W/bin/pgrep"
 printf '#!/bin/bash\ntouch "%s/killed"\n' "$W" > "$W/bin/pkill"
@@ -103,6 +105,18 @@ rm -f "$W/killed" "$W/opened"
 FAKE_OUTPUT="$GOOD" install && ok "a build signed with the Developer ID installs" || { bad "a good build was refused"; cat "$W/install.log"; }
 [ -e "$W/killed" ] && [ -e "$W/dest/Tallshot.app/new-copy" ] && [ ! -e "$W/dest/Tallshot.app/old-copy" ] && [ -e "$W/opened" ] \
   && ok "  ...replacing the running copy and opening the new one" || bad "a good build wasn't installed and opened"
+# --remove-other-copies must never remove the copy it just installed, however the folder was
+# typed (here with a trailing slash; Spotlight reports the plain path).
+DESTREAL="$(cd "$W/dest" && pwd -P)"
+cat > "$W/bin/mdfind" <<FAKE
+#!/bin/bash
+echo "$DESTREAL/Tallshot.app"
+FAKE
+chmod +x "$W/bin/mdfind"
+FAKE_OUTPUT="$GOOD" PATH="$W/bin:$PATH" TALLSHOT_SIGNING_CONFIG="$W/Signing.xcconfig" TALLSHOT_BUILD_DIR="$W/build" TALLSHOT_DEST="$W/dest/" \
+  "$R/scripts/install.sh" --remove-other-copies >"$W/install.log" 2>&1
+[ -e "$W/dest/Tallshot.app/new-copy" ] && ok "--remove-other-copies keeps the copy it just installed" || { bad "--remove-other-copies deleted the new install"; cat "$W/install.log"; }
+printf '#!/bin/bash\nexit 0\n' > "$W/bin/mdfind"
 
 [ $FAIL = 0 ] && echo "All signing check tests passed." || echo "Signing check tests FAILED."
 exit $FAIL

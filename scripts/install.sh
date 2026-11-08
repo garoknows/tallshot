@@ -63,6 +63,9 @@ if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
 fi
 
 mkdir -p "$DEST"
+# The plain full path (no trailing slash, no symlinks), as Spotlight reports it, so
+# --remove-other-copies can recognize the copy installed here.
+DEST="$(cd "$DEST" && pwd -P)"
 rm -rf "$DEST/$APP_NAME.app"
 ditto "$BUILT" "$DEST/$APP_NAME.app" || fail "Couldn't copy into $DEST."
 # The build folder's copy would otherwise be a second Tallshot that macOS can find.

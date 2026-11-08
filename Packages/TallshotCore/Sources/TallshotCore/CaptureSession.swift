@@ -277,6 +277,9 @@ public final class CaptureSession {
         // accessibility tree offers it, else a trackpad gesture).
         method = ScrollMethod.allCases.first { driver.setScrollMethod($0) } ?? .gesture
         if options.fromTop { try await scrollToTop(start: start) }
+        // The way of scrolling that took it to the top. If another way turns out to be the one
+        // this app follows, the trip to the top didn't count.
+        let topMethod = method
 
         var first = try await settledFrame()
         driver.contentSettled()
@@ -336,6 +339,7 @@ public final class CaptureSession {
                 movingColumns = movingColumns.map { min($0.lowerBound, cols.lowerBound)..<max($0.upperBound, cols.upperBound) } ?? cols
             }
             stitcher.add(frame, layout: layout)
+            still = 0   // the page moved, so any earlier "no movement" was not the bottom
             middle = H - layout.header - layout.footer
             driver.contentSettled()
         }
@@ -444,10 +448,18 @@ public final class CaptureSession {
 
             switch result {
             case .noMovement:
+                if let c = compareFrom, !methodCompared {
+                    // The other way of scrolling, tried after an overshoot, moved nothing: this
+                    // app may ignore it. Go back to the way that moved, and don't count this step.
+                    _ = select(c.method)
+                    compareFrom = nil
+                    methodCompared = true
+                    continue
+                }
                 still += 1
                 if still >= 2 { return finish(.bottom) }
             case .moved(let layout):
-                if stitcher.steps == 0 && method != .gesture && method != .scrollBar && options.fromTop && !rescrolledToTop {
+                if stitcher.steps == 0 && options.fromTop && method != topMethod && !rescrolledToTop {
                     // The way to the top used a way of scrolling this app ignores: go again.
                     rescrolledToTop = true
                     try await scrollToTop(start: start)
@@ -488,12 +500,22 @@ public final class CaptureSession {
                 gain = max(0.03, gain * 0.5)
                 fraction = max(0.15, fraction * 0.6)
                 goodSteps = 0
+                var switchedFrom: ScrollMethod? = nil
                 if !methodCompared, compareFrom == nil, method == .gesture || method == .wheelPixels {
                     let other: ScrollMethod = method == .gesture ? .wheelPixels : .gesture
-                    if driver.setScrollMethod(other) { compareFrom = (method, 99); method = other }
+                    if driver.setScrollMethod(other) { compareFrom = (method, 99); switchedFrom = method; method = other }
                 }
                 if failures > 4 { return finish(.lostTrack) }
-                if !(try await walkBack(from: frame)) {
+                var foundAgain = try await walkBack(from: frame)
+                if !foundAgain, let previous = switchedFrom, !driver.isCancelled, driver.now - start < options.maxSeconds {
+                    // The way of scrolling it switched to couldn't walk back (the app may ignore
+                    // it). Walk back with the way that was moving the page.
+                    _ = select(previous)
+                    compareFrom = nil
+                    methodCompared = true
+                    foundAgain = try await walkBack(from: try await settledFrame())
+                }
+                if !foundAgain {
                     return driver.isCancelled ? finish(.cancelled) : (driver.now - start >= options.maxSeconds ? finish(.timeCap) : finish(.lostTrack))
                 }
                 want = max(1, Int(Double(middle) * fraction))
