@@ -64,7 +64,7 @@ public struct CaptureOptions: Sendable, Equatable {
     public init() {}
 }
 
-public enum StopReason: String, Sendable, Equatable {
+public enum StopReason: String, Sendable, Equatable, CaseIterable {
     /// Reached the bottom: a scroll moved nothing, twice in a row.
     case bottom
     case heightCap

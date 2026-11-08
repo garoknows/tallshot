@@ -232,11 +232,15 @@ struct ChatPageExportTests {
     }
 
     @Test func generatorMatchesTheTestPage() {
-        // Spot-check against values computed with the page's own JavaScript.
+        // Values printed by running the page's own JavaScript (site/test/chat/index.html) in
+        // Node, so a change to either generator shows up here.
         let m = Self.messages()
         #expect(m.count == 60)
-        #expect(m[0].user && m[1].who == "Assistant · message 2")
-        #expect(m.allSatisfy { $0.user ? (70..<120).contains($0.height) : (150..<340).contains($0.height) })
+        #expect([0, 1, 2, 17, 58, 59].map { m[$0].height } == [82, 208, 88, 228, 82, 209])
+        #expect(m.map { String($0.paras.count) }.joined() == "131113121112111311131213121113111312131211121113111312111211")
+        #expect(m[1].paras[0] == "Because short line quick number answer also stays part step keeps list order test top stays order next bottom shows plan first keeps left plan first question next line page because careful right again because line moves.")
+        #expect(m[59].paras.last == "Careful step number chip line test box left also column scroll better plan number window step stays right simple bottom quick next scroll middle next quick page short scroll shows value answer small list.")
+        #expect(m[1].who == "Assistant · message 2")
     }
 }
 
