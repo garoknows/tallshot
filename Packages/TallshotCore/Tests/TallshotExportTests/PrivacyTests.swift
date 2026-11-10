@@ -77,8 +77,10 @@ struct PrivacyTests {
         let report = DiagnosticsReport.write(result, region: "0, 0, 160 x 180 points, scrollArea", appName: "App \(marker)",
                                              colorSpace: Self.srgb, folder: folder, baseName: name)
         #expect((report != nil) == diagnostics)
-        // Pixel rows that only this capture has (inside its first frame, so a report frame has them too).
-        let rows = [60, 200, 330].map { Array(result.image.row($0)) }
+        // Pixel rows that only this capture has: its most varied rows inside the first frame (so a
+        // report frame has them too). A plain row could match any file by chance.
+        let rows = DiskScanner.distinctiveRows(of: result.image.rows(0..<340), count: 3)
+        #expect(rows.allSatisfy { DiskScanner.changes($0) >= DiskScanner.minimumChanges }, "the pixel fingerprint must not be a plain row")
         return Saved(folder: folder, files: written.files, report: report, scanner: DiskScanner(texts: [marker], rows: rows))
     }
 
