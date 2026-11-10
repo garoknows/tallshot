@@ -52,6 +52,13 @@ jobs:
           # 0.x versions are previews, published as GitHub pre-releases; 1.0 and later are full releases.
           case "$V" in 0.*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
 
+      # Full releases say "signed and notarized" in their notes, so they stop here without the secrets.
+      - name: A full release must be signed and notarized
+        if: steps.v.outputs.prerelease == 'false' && (env.HAS_SIGNING != 'true' || env.HAS_NOTARY != 'true')
+        run: |
+          echo "::error::Versions 1.0 and later need all six signing and notarizing secrets."
+          exit 1
+
       # Every tool from outside macOS is installed now, before the signing key exists on this
       # machine, so none of it can ever run while the key is unlocked.
       - name: Install XcodeGen (pinned version, checksum checked)
