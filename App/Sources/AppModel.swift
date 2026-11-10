@@ -164,6 +164,10 @@ final class AppModel: ObservableObject {
         switch url.host {
         case "capture": capture(fromTop: fromTop, asImage: asImage)
         case "selftest", "self-test": SelfTest.shared.run()
+        case "probe":
+            guard !isCapturing, Permissions.allGranted else { return }
+            isCapturing = true
+            Task { await AccessibilityProbe.run(); isCapturing = false }
         case "settings": WindowRouter.shared.showSettings()
         default: break
         }
