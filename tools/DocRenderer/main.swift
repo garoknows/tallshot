@@ -97,6 +97,7 @@ struct MenuPicture: View {
             VStack(alignment: .leading, spacing: 2) {
                 row("Capture Now", "⌃⌥⇧⌘T")
                 row("Capture from Top", nil)
+                row("Capture as Image", nil)
                 Divider().padding(.vertical, 3)
                 row("Settings…", "⌘,")
                 row("Run Self-Test", nil)

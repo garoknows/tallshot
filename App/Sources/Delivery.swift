@@ -67,6 +67,32 @@ enum Delivery {
         return outcome
     }
 
+    /// A text capture: the Markdown (and PDF and Word, if those are on) saved, and the Markdown
+    /// copied, the same way as an image capture's files. No picture is made.
+    static func deliverText(_ doc: ExportDocument, settings: Settings, baseName: String) async -> Outcome {
+        let folder = settings.folderURL
+        var plan = CaptureExport.Plan(settings: settings, baseName: baseName).forText
+        plan.baseName = ExportFiles.uniqueBaseName(plan.baseName, extensions: plan.extensions, folder: folder, ending: CaptureName.ending)
+        let p = plan
+        let built = await Task.detached(priority: .userInitiated) { CaptureExport.buildText(doc, plan: p) }.value
+        var outcome = Outcome(error: built.error, textSource: built.textSource, notes: built.notes)
+        if !built.files.isEmpty {
+            let written = ExportFiles.write(built.files, baseName: plan.baseName, folder: folder)
+            outcome.files = written.files
+            if let error = written.error {
+                let kept = written.files.isEmpty ? "" : " Only some files were saved."
+                outcome.error = "Couldn't save to \(folder.lastPathComponent): \(error.localizedDescription)\(kept)"
+            }
+        }
+        if plan.copyText, let text = built.clipboardText {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            outcome.copied = pb.setString(text, forType: .string)
+            outcome.copiedText = outcome.copied
+        }
+        return outcome
+    }
+
     /// A small preview of the top of the capture for the pop-up.
     static func thumbnail(_ cg: CGImage) -> NSImage? {
         guard cg.width > 0, cg.height > 0 else { return nil }
@@ -102,11 +128,14 @@ enum Delivery {
         return (o.files["png"] != nil ? "Also saved " : "Saved ") + list + "."
     }
 
-    static func pixels(_ n: Int) -> String {
+    static func pixels(_ n: Int) -> String { "\(number(n)) px" }
+
+    /// "1,204"
+    static func number(_ n: Int) -> String {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.locale = Locale(identifier: "en_US")
-        return "\(f.string(from: NSNumber(value: n)) ?? "\(n)") px"
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 }
 

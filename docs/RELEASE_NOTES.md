@@ -1,30 +1,20 @@
 Tallshot turns any scrolling window into one tall screenshot with a single hotkey. Point at it, press **⌃⌥⇧⌘T**, and it scrolls to the bottom, stitches the strips, saves a PNG and copies it to your clipboard. No box to draw, no editor to close.
 
-**Tallshot 1.0**
+Signed with a Developer ID and notarized by Apple, so it opens with no warning.
 
-This is the first full release. It's signed with a Developer ID and notarized by Apple, so it opens with no warning.
+**New in 1.1: terminals and documents give you their text**
 
-- **Just the pane you point at.** A chat column, a mail message, one side of a split view. Sidebars, toolbars and the other pane stay out. Prefer the whole window? Settings → General → Capture.
-- **Works where scrolling is awkward.** Browsers that glide past where they were asked to stop, chat apps with floating buttons and a see-through message box, and pages that load older messages at the top. Capture from Top starts at the very beginning.
-- **Also save as PDF, Word and Markdown.** A searchable PDF on Letter or A4 pages, and Word and Markdown files with real headings, lists, links and code. Copy as text puts the Markdown on the clipboard.
-- **File names that say what's in them, in every browser.** For example `Arc - example.com - Chat test - 2026-11-07 at 14.05 - Tallshot.png`. Nothing goes in from a password field that has the keyboard or a Chrome Incognito window. Prefer the date only? Settings → Output → File names.
-- **Private by design.** No network code, no analytics, no account. Captures go only to your clipboard and the folder you choose. Text recognition runs on your Mac. The page title and site are only in the file names: a saved PDF's title inside the file is just "Tallshot capture".
-- **Very large captures use much less memory.** Saving no longer makes a full extra copy of the image, and a very wide capture stops at 50 million pixels in all (about 14,400 pixels tall across a 16-inch MacBook Pro's whole screen) with "Stopped at the size limit", so memory stays well under 1 GB.
+- **Text captures.** Point at Ghostty, Terminal, Notes, TextEdit or a code editor that shares all its text with macOS and press the hotkey. Tallshot copies the whole text as Markdown and saves it (plus PDF and Word if those are on), with no scrolling, no screenshots and no pointer movement. A terminal's text keeps its exact spacing.
+- **Only when the text is complete.** Tallshot uses the text only when the app shows it includes the part scrolled out of view. Browsers and chat apps share only what's on screen, so they still get a scrolling screenshot, as before.
+- **Capture as Image.** A new menu item, with an optional hotkey in Settings, that always takes the scrolling screenshot. Also `tallshot://capture?as=image`.
+- **Your choice.** Settings → General → When an app shares its text: **Copy the text (no scrolling)** (the default) or **Always take a scrolling screenshot**.
+- **The pop-up says which mode ran**, and, when an app's text couldn't be used, why.
 
-**Fixed since 0.2.3**
+**Fixed**
 
-- Pressing the hotkey over Tallshot's own Settings window could freeze Tallshot for a few seconds. An app that had stopped responding could also hold it up longer than it should.
-- Capture from Top could start partway down in an app that shows a scroll bar but ignores it.
-- In an app that ignores one kind of scrolling, a page that scrolled too far once could end the capture after one screen.
-- Very tall captures copied the whole image on every step, which was slow and briefly doubled the memory used.
-- A failed save (a full disk, a missing folder) left some files without saying so. Tallshot now keeps what it saved, says which, and removes any half-written file.
-- Scrolling set to the opposite direction wasn't noticed when a capture started at the top of a page.
-- A window or Tallshot's own pop-up over the middle of the pane could catch the scrolling.
-- Recording a hotkey that Tallshot already uses started a capture instead, and the Capture from Top hotkey could type its letter into the app.
-- After a capture, Electron apps kept their extra accessibility work switched on.
-- Word: numbered lists didn't restart at 1, and line breaks inside text were lost. Markdown: text that looked like HTML or a numbered list changed meaning, and only web and mail links are kept.
-- The pop-up thumbnail was stretched for short captures, and a diagnostic report that failed to save could leave a partial folder.
+- The pointer could keep the shape it had over the captured app (an I-beam, for example) after a capture, until you moved the mouse. Tallshot now always hands it back with a real mouse move, after a finished capture, Esc, an error or an early stop.
+- In 1.0, a terminal sitting at the bottom of its history was scrolled up and back down before the capture gave up. A terminal that shares its text now gets a text capture instead, with no scrolling.
 
-**For people building from source:** `scripts/install.sh` now checks the new build's signature before it quits the running Tallshot, so a refused build leaves your copy running, and `--remove-other-copies` can no longer delete the copy it just installed.
+Everything from 1.0 is still here, including the review fixes: lower memory for very large captures, nothing private inside saved files, no freeze when pointing at Tallshot's own windows, and the safer `install.sh`.
 
-**Requirements:** macOS 14 Sonoma or later. Tallshot asks for Screen Recording and Accessibility on first launch, with pictures of where to click. If you had a 0.x version, macOS may ask for both again, because 1.0 is signed differently.
+**Requirements:** macOS 14 Sonoma or later. Tallshot asks for Screen Recording and Accessibility on first launch, with pictures of where to click.

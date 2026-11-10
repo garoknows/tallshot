@@ -47,6 +47,8 @@ struct MenuContent: View {
             .keyboardShortcut(settings.captureHotkey)
         Button("Capture from Top") { captureSoon(fromTop: true) }
             .keyboardShortcut(settings.fromTopHotkey)
+        Button("Capture as Image") { captureSoon(fromTop: false, asImage: true) }
+            .keyboardShortcut(settings.imageHotkey)
         Divider()
         if !Permissions.allGranted {
             Button("Finish Setup…") { WindowRouter.shared.showSetup() }
@@ -61,8 +63,8 @@ struct MenuContent: View {
 
     /// From the menu, capture the front window once the menu has closed. The pointer is on the
     /// menu's own item, over whatever window happens to be behind it, so it isn't used.
-    func captureSoon(fromTop: Bool) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { model.capture(fromTop: fromTop, fromMenu: true) }
+    func captureSoon(fromTop: Bool, asImage: Bool = false) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { model.capture(fromTop: fromTop, fromMenu: true, asImage: asImage) }
     }
 }
 

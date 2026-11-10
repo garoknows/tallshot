@@ -108,6 +108,19 @@ public enum HotkeyConflicts {
     public static let cmd: UInt32 = 1 << 8, shift: UInt32 = 1 << 9, option: UInt32 = 1 << 11, control: UInt32 = 1 << 12
     public static let hyper: UInt32 = cmd | shift | option | control
 
+    /// One hotkey's key and modifiers.
+    public struct Keys: Equatable, Sendable {
+        public var keyCode: UInt32, modifiers: UInt32
+        public init(keyCode: UInt32, modifiers: UInt32) { self.keyCode = keyCode; self.modifiers = modifiers }
+    }
+
+    /// Another of Tallshot's hotkey slots that already has the same keys as `slot` (the lowest
+    /// numbered one), or nil.
+    public static func sameKeys(as slot: UInt32, in keys: [UInt32: Keys]) -> UInt32? {
+        guard let mine = keys[slot] else { return nil }
+        return keys.filter { $0.key != slot && $0.value == mine }.keys.min()
+    }
+
     /// Virtual key codes for the letters that matter here.
     public static let keyC: UInt32 = 8, keyV: UInt32 = 9, keyF: UInt32 = 3, keyX: UInt32 = 7, keySpace: UInt32 = 49
     public static let key3: UInt32 = 20, key4: UInt32 = 21, key5: UInt32 = 23, key6: UInt32 = 22

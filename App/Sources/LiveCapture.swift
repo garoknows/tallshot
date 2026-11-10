@@ -115,7 +115,7 @@ final class LiveDriver: CaptureDriver {
     private var cancelledByUser = false
     private var pointerMoved = false
     private var inverted = false
-    private let savedPointer: CGPoint
+    private let pointer = PointerParking(move: LiveDriver.movePointer, location: TargetFinder.pointerLocation)
     private(set) var method = ScrollMethod.gesture
     private let mover: ScrollBarMover?
     /// Reads the pane's text at each step, when an export needs it.
@@ -126,7 +126,6 @@ final class LiveDriver: CaptureDriver {
     init(target: CaptureTarget, capturer: WindowCapturer) {
         self.target = target
         self.capturer = capturer
-        savedPointer = TargetFinder.pointerLocation()
         let own = target.pid == ProcessInfo.processInfo.processIdentifier
         mover = (own ? nil : target.scrollBar).map { ScrollBarMover(bar: $0, contentHeight: target.contentHeight, visibleHeight: target.region.height) }
     }
@@ -134,20 +133,33 @@ final class LiveDriver: CaptureDriver {
     var isCancelled: Bool { cancelledByUser }
     var now: Double { ProcessInfo.processInfo.systemUptime }
 
-    /// Moves the pointer to the scroll point and starts watching for the user.
+    /// Moves the pointer to the scroll point and starts watching for the user. `end` must follow.
     func begin() {
-        CGWarpMouseCursorPosition(target.scrollPoint)
+        pointer.park(at: target.scrollPoint)
         let mask: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .mouseMoved, .leftMouseDragged]
         let handler: (NSEvent) -> Void = { [weak self] e in self?.userEvent(e) }
         if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { e in handler(e); return e }) { monitors.append(m) }
     }
 
-    /// Stops watching and puts the pointer back where it was (unless the user moved it).
+    /// Stops watching and puts the pointer back where it was (unless the user moved it), in its
+    /// normal shape. Safe to call more than once.
     func end() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
-        if !pointerMoved { CGWarpMouseCursorPosition(savedPointer) }
+        pointer.restore(userMoved: pointerMoved)
+    }
+
+    /// Moves the pointer with a real "mouse moved" event, not only a warp. A warp alone tells no
+    /// app the pointer moved, so the pointer kept the shape the app under the scroll point gave
+    /// it (an I-beam or a crosshair, for example) until the user touched the mouse.
+    static func movePointer(to p: CGPoint) {
+        CGWarpMouseCursorPosition(p)
+        CGAssociateMouseAndMouseCursorPosition(1)
+        if let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left) {
+            e.setIntegerValueField(.eventSourceUserData, value: ScrollPoster.marker)
+            e.post(tap: .cghidEventTap)
+        }
     }
 
     private func userEvent(_ e: NSEvent) {
@@ -156,6 +168,7 @@ final class LiveDriver: CaptureDriver {
             if e.cgEvent?.getIntegerValueField(.eventSourceUserData) == ScrollPoster.marker { return }
             cancelledByUser = true
         case .mouseMoved, .leftMouseDragged:
+            if e.cgEvent?.getIntegerValueField(.eventSourceUserData) == ScrollPoster.marker { return }
             let p = TargetFinder.pointerLocation()
             if hypot(p.x - target.scrollPoint.x, p.y - target.scrollPoint.y) > 8 { cancelledByUser = true; pointerMoved = true }
         default:

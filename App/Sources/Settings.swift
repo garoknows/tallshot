@@ -56,6 +56,16 @@ enum CopyAs: String, CaseIterable, Identifiable {
     var title: String { self == .image ? "Image" : "Text (Markdown)" }
 }
 
+/// What a capture does when the app shares the pane's whole text.
+enum TextCapture: String, CaseIterable, Identifiable {
+    /// Copy and save the text, with no scrolling and no pictures (the default).
+    case copyText
+    /// Always take a scrolling screenshot.
+    case screenshot
+    var id: String { rawValue }
+    var title: String { self == .copyText ? "Copy the text (no scrolling)" : "Always take a scrolling screenshot" }
+}
+
 /// How carefully to scroll: a trade between speed and robustness on slow pages.
 enum ScrollSpeed: String, CaseIterable, Identifiable {
     case careful, normal, fast
@@ -80,10 +90,15 @@ final class Settings: ObservableObject {
         static let captureMode = "captureMode", savePDF = "savePDF", saveDOCX = "saveDOCX", saveMD = "saveMarkdown"
         static let copyAs = "copyAs", pageSize = "pdfPageSize", wordImage = "wordIncludesImage"
         static let descriptiveNames = "descriptiveFileNames"
+        static let imageHotkey = "imageHotkey", textCapture = "textCapture"
     }
 
     @Published var captureHotkey: Hotkey? { didSet { store(captureHotkey, Keys.captureHotkey) } }
     @Published var fromTopHotkey: Hotkey? { didSet { store(fromTopHotkey, Keys.fromTopHotkey) } }
+    /// Capture as Image: always a scrolling screenshot. None by default.
+    @Published var imageHotkey: Hotkey? { didSet { store(imageHotkey, Keys.imageHotkey) } }
+    /// When the app shares the pane's whole text: copy it (default) or take a screenshot anyway.
+    @Published var textCapture: TextCapture { didSet { d.set(textCapture.rawValue, forKey: Keys.textCapture) } }
     /// nil means the Desktop.
     @Published var saveFolder: URL? { didSet { d.set(saveFolder?.path, forKey: Keys.saveFolder) } }
     @Published var copyToClipboard: Bool { didSet { d.set(copyToClipboard, forKey: Keys.copy) } }
@@ -120,9 +135,11 @@ final class Settings: ObservableObject {
                               Keys.speed: ScrollSpeed.normal.rawValue, Keys.maxHeight: 30_000, Keys.maxSeconds: 60, Keys.diagnostics: false,
                               Keys.captureMode: CaptureMode.pane.rawValue, Keys.savePDF: false, Keys.saveDOCX: false, Keys.saveMD: false,
                               Keys.copyAs: CopyAs.image.rawValue, Keys.pageSize: PageSize.letter.rawValue, Keys.wordImage: false,
-                              Keys.descriptiveNames: true])
+                              Keys.descriptiveNames: true, Keys.textCapture: TextCapture.copyText.rawValue])
         captureHotkey = d.object(forKey: Keys.captureHotkey) == nil ? .defaultCapture : Self.load(d, Keys.captureHotkey)
         fromTopHotkey = Self.load(d, Keys.fromTopHotkey)
+        imageHotkey = Self.load(d, Keys.imageHotkey)
+        textCapture = TextCapture(rawValue: d.string(forKey: Keys.textCapture) ?? "") ?? .copyText
         saveFolder = d.string(forKey: Keys.saveFolder).map { URL(fileURLWithPath: $0, isDirectory: true) }
         copyToClipboard = d.bool(forKey: Keys.copy)
         saveToFolder = d.bool(forKey: Keys.save)
@@ -142,6 +159,14 @@ final class Settings: ObservableObject {
         pdfPageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .letter
         wordIncludesImage = d.bool(forKey: Keys.wordImage)
         descriptiveFileNames = d.bool(forKey: Keys.descriptiveNames)
+    }
+
+    func hotkey(slot: UInt32) -> Hotkey? {
+        switch slot { case 1: captureHotkey; case 2: fromTopHotkey; default: imageHotkey }
+    }
+
+    func setHotkey(_ h: Hotkey?, slot: UInt32) {
+        switch slot { case 1: captureHotkey = h; case 2: fromTopHotkey = h; default: imageHotkey = h }
     }
 
     /// A hotkey is stored as Data; "none" is stored as empty Data so it isn't reset to the default.
