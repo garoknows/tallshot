@@ -139,7 +139,7 @@ final class LiveDriver: CaptureDriver {
     private var cancelledByUser = false
     private var pointerMoved = false
     private var inverted = false
-    private let pointer = PointerParking(move: LiveDriver.movePointer, location: TargetFinder.pointerLocation)
+    private let pointer = PointerParking(jump: LiveDriver.jumpPointer, move: LiveDriver.movePointer, location: TargetFinder.pointerLocation)
     private(set) var method = ScrollMethod.gesture
     private let mover: ScrollBarMover?
     /// Reads the pane's text at each step, when an export needs it.
@@ -174,7 +174,15 @@ final class LiveDriver: CaptureDriver {
         pointer.restore(userMoved: pointerMoved)
     }
 
-    /// Moves the pointer with a real "mouse moved" event, not only a warp. A warp alone tells no
+    /// Moves the pointer silently: no app is told, so nothing under it reacts while pictures are
+    /// taken. The only kind of move allowed between the first and the last picture.
+    static func jumpPointer(to p: CGPoint) {
+        CGWarpMouseCursorPosition(p)
+        CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    /// Moves the pointer with a real "mouse moved" event, not only a warp. Only after the last
+    /// picture (PointerParking.restore, LivePointer.resetAfterCapture), never during a capture. A warp alone tells no
     /// app the pointer moved, so the pointer kept the shape the app under the scroll point gave
     /// it (an I-beam or a crosshair, for example) until the user touched the mouse.
     static func movePointer(to p: CGPoint) {

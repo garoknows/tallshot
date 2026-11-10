@@ -16,12 +16,15 @@ public struct SharedTextFacts: Sendable, Equatable {
     /// The element's frame and the pane being captured, in screen points.
     public var frame: CGRect
     public var region: CGRect
+    /// The element was found right under the middle of the pane (so it is the pane's text even
+    /// when the app reports no usable frame).
+    public var underPaneCenter: Bool
 
     public init(role: String, insideWebPage: Bool, text: String, characterCount: Int?, visibleRange: Range<Int>?,
-                frame: CGRect, region: CGRect) {
+                frame: CGRect, region: CGRect, underPaneCenter: Bool = false) {
         self.role = role; self.insideWebPage = insideWebPage; self.text = text
         self.characterCount = characterCount; self.visibleRange = visibleRange
-        self.frame = frame; self.region = region
+        self.frame = frame; self.region = region; self.underPaneCenter = underPaneCenter
     }
 }
 
@@ -56,17 +59,22 @@ public enum SharedTextCheck {
         guard !f.insideWebPage else { return .inWebPage }
         guard f.text.contains(where: { !$0.isWhitespace }) else { return .empty }
         let total = f.text.utf16.count
-        if let n = f.characterCount, n != total { return .truncated }
-        // The element must be the pane, not a box inside it: it covers at least half of it.
+        // Cut short: the app says it holds more than it gave. Apps count in different units
+        // (UTF-16, Unicode characters, letters), so only a count above all of them counts.
+        if let n = f.characterCount, n > max(total, f.text.unicodeScalars.count, f.text.count) { return .truncated }
+        // The element must be the pane, not a box inside it: it covers at least half of it. An
+        // element with no frame is accepted if it was found under the middle of the pane.
         let overlap = f.frame.intersection(f.region)
         let regionArea = f.region.width * f.region.height
-        guard !overlap.isNull, regionArea > 0, overlap.width * overlap.height >= regionArea * 0.5 else { return .doesntFillPane }
-        // Proof that the text includes what's scrolled out of view.
-        if let visible = f.visibleRange {
-            return visible.lowerBound > 0 || visible.upperBound < total ? .complete : .cantTell
-        }
+        let fills = !overlap.isNull && regionArea > 0 && overlap.width * overlap.height >= regionArea * 0.5
+        let noFrame = f.frame.width < 1 || f.frame.height < 1
+        guard fills || (noFrame && f.underPaneCenter) else { return .doesntFillPane }
+        // Proof that the text includes what's scrolled out of view, without moving anything:
+        // more lines than could ever fit in the pane, or a visible range smaller than the whole.
         let lines = f.text.split(separator: "\n", omittingEmptySubsequences: false).count
-        return CGFloat(lines) > f.region.height / minimumLineHeight ? .complete : .cantTell
+        if CGFloat(lines) > f.region.height / minimumLineHeight { return .complete }
+        if let visible = f.visibleRange, visible.lowerBound > 0 || visible.upperBound < total { return .complete }
+        return .cantTell
     }
 }
 
@@ -117,17 +125,28 @@ public enum PlainTextDocument {
     }
 
     /// Paragraphs and bullet items from plain text (also used for a document view's text while
-    /// scrolling).
+    /// scrolling). A blank line ends a paragraph; the lines of one paragraph stay one paragraph,
+    /// with their line breaks, so Markdown doesn't get a blank line after every line. A line that
+    /// starts with a bullet is a list item.
     public static func prose(_ text: String) -> [Block] {
-        var out: [Block] = []
-        for line in text.split(separator: "\n") where !String(line).trimmingWhitespace.isEmpty {
+        var out: [Block] = [], lines: [String] = []
+        func flush() {
+            if !lines.isEmpty { out.append(.paragraph([Inline(lines.joined(separator: "\n"))])) }
+            lines = []
+        }
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = Substring(raw)
+            while let last = line.last, last == " " || last == "\t" || last == "\r" { line = line.dropLast() }
             let t = String(line)
+            if t.trimmingWhitespace.isEmpty { flush(); continue }
             if let first = t.first, "•◦▪-–*".contains(first) {
+                flush()
                 out.append(.listItem(level: 0, ordered: false, [Inline(String(t.dropFirst()).trimmingWhitespace)]))
             } else {
-                out.append(.paragraph([Inline(t)]))
+                lines.append(t)
             }
         }
+        flush()
         return out
     }
 
@@ -135,23 +154,29 @@ public enum PlainTextDocument {
     public static func lineCount(_ doc: ExportDocument) -> Int {
         doc.blocks.reduce(0) { n, b in
             if case .code(let c) = b { return n + c.split(separator: "\n", omittingEmptySubsequences: false).count }
-            return n + 1
+            return n + b.plainText.split(separator: "\n", omittingEmptySubsequences: false).count
         }
     }
 }
 
-/// Moves the pointer to where a capture scrolls, and always puts it back afterwards, with a real
-/// "mouse moved" so the app under it redraws the pointer in its normal shape. Whatever happens in
-/// between (finished, Esc, an error, an early stop), `restore` runs once.
+/// Moves the pointer to where a capture scrolls, and always puts it back afterwards. Two kinds of
+/// move, kept apart on purpose:
+///  - `jump` (park): a silent move that tells no app anything. Used before the first picture, so
+///    nothing under the pointer reacts (a hover, a scroll bar appearing) while pictures are taken.
+///  - `move` (restore): a move with a real "mouse moved" event, so the app under the pointer
+///    redraws it in its normal shape. Used only once the last picture is taken.
+/// In 1.1.0 and 1.1.1 parking used the real move too, and the self-test failed (see DECISIONS).
+/// Whatever happens in between (finished, Esc, an error, an early stop), `restore` runs once.
 @MainActor
 public final class PointerParking {
-    /// Moves the pointer and tells the apps under it (a mouse-moved event).
+    let jump: @MainActor (CGPoint) -> Void
     let move: @MainActor (CGPoint) -> Void
-    /// Where the pointer is now.
     let location: @MainActor () -> CGPoint
     private var saved: CGPoint?
 
-    public init(move: @escaping @MainActor (CGPoint) -> Void, location: @escaping @MainActor () -> CGPoint) {
+    public init(jump: @escaping @MainActor (CGPoint) -> Void, move: @escaping @MainActor (CGPoint) -> Void,
+                location: @escaping @MainActor () -> CGPoint) {
+        self.jump = jump
         self.move = move
         self.location = location
     }
@@ -160,7 +185,7 @@ public final class PointerParking {
 
     public func park(at point: CGPoint) {
         if saved == nil { saved = location() }
-        move(point)
+        jump(point)
     }
 
     /// Back where it was. If the user moved the pointer during the capture, it stays where they

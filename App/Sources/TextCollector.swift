@@ -10,6 +10,8 @@ import TallshotCore
 final class TextCollector {
     let root: AXUIElement
     let region: CGRect
+    /// The app's bundle ID: a terminal's or code editor's text is kept as one exact code block.
+    let bundleID: String?
     private(set) var merger = SnapshotMerger()
     private var visited = 0
     private var deadline = 0.0
@@ -20,9 +22,10 @@ final class TextCollector {
                                     "AXImage", "AXComboBox", "AXDisclosureTriangle", "AXIncrementor", "AXSearchField", "AXSplitter"]
     static let inline: Set<String> = ["AXStaticText", "AXLink", "AXListMarker"]
 
-    init(root: AXUIElement, region: CGRect) {
+    init(root: AXUIElement, region: CGRect, bundleID: String? = nil) {
         self.root = root
         self.region = region
+        self.bundleID = bundleID
         AXUIElementSetMessagingTimeout(root, 0.5)
     }
 
@@ -68,7 +71,12 @@ final class TextCollector {
             // text area is a message box, and is left out.
             guard let f = TargetFinder.frame(el), f.height > region.height * 0.4,
                   let value: String = TargetFinder.attribute(el, kAXValueAttribute) else { return }
-            out += PlainTextDocument.prose(value)
+            if PlainTextDocument.isPreformatted(bundleID: bundleID, text: value) {
+                let t = PlainTextDocument.clean(value)
+                if !t.isEmpty { out.append(.code(t)) }
+            } else {
+                out += PlainTextDocument.prose(value)
+            }
         default:
             if isCode(el, role: r) {
                 guard onScreen(el) else { return }

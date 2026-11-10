@@ -118,19 +118,16 @@ struct HotkeyConflictTests {
     @Test func refusedHotkeyIsNeverAcceptedSilently() {
         #expect(H.warning(keyCode: H.keyX, modifiers: H.hyper, registered: false, systemTaken: false, running: [])?.contains("refused") == true)
     }
-    @Test func raycastHyperKeysAreNamed() {
-        for key in [H.keyC, H.keyV, H.keyF, H.keyX] {
-            let w = H.warning(keyCode: key, modifiers: H.hyper, registered: true, systemTaken: false, running: ["com.raycast.macos"])
-            #expect(w?.contains("Raycast") == true)
+    @Test func runningAppsAloneNeverCauseAWarning() {
+        // 1.1.1 warned "Raycast is running and may use this hotkey" for ⌃⌥⇧⌘X with no evidence.
+        for key in [H.keyC, H.keyV, H.keyF, H.keyX, 17, 6] {
+            let running: Set<String> = ["com.raycast.macos", "com.runningwithcrayons.Alfred", "com.1password.1password", "cc.ffitch.shottr"]
+            #expect(H.warning(keyCode: key, modifiers: H.hyper, registered: true, systemTaken: false, running: running) == nil)
         }
-        // Not running: no warning for those.
-        #expect(H.warning(keyCode: H.keyX, modifiers: H.hyper, registered: true, systemTaken: false, running: []) == nil)
-        // Tallshot's own default (Hyper+T) and Hyper+Z are fine.
-        #expect(H.warning(keyCode: 17, modifiers: H.hyper, registered: true, systemTaken: false, running: ["com.raycast.macos"]) == nil)
-        #expect(H.warning(keyCode: 6, modifiers: H.hyper, registered: true, systemTaken: false, running: ["com.raycast.macos"]) == nil)
+        #expect(H.warning(keyCode: H.key4, modifiers: H.cmd | H.shift, registered: true, systemTaken: false, running: []) == nil,
+                "a macOS shortcut that's turned off in Settings is no clash")
     }
     @Test func systemShortcutsAreNamed() {
-        #expect(H.warning(keyCode: H.key4, modifiers: H.cmd | H.shift, registered: true, systemTaken: false, running: [])?.contains("screenshots") == true)
         #expect(H.warning(keyCode: 0, modifiers: H.cmd, registered: true, systemTaken: true, running: [])?.contains("Keyboard Shortcuts") == true)
     }
 }
