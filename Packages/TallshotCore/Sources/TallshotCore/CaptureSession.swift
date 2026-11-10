@@ -38,6 +38,11 @@ public struct CaptureOptions: Sendable, Equatable {
     public var cautiousStartFraction: Double? = nil
     /// Stop at this many pixels tall.
     public var maxHeight = 30_000
+    /// Stop at this many pixels in all (width × height), whatever the height limit. 50 million
+    /// pixels is 200 MB of image; with the room the image grows into and the files made from it,
+    /// a capture stays well under 1 GB of memory. On a 16-inch MacBook Pro's full screen width
+    /// (3456 pixels) that is about 14,400 pixels tall; a narrower pane gets taller.
+    public var maxPixels = 50_000_000
     /// Stop after this many seconds.
     public var maxSeconds = 60.0
     /// Time between the two quick captures that confirm the page has settled.
@@ -59,10 +64,12 @@ public struct CaptureOptions: Sendable, Equatable {
     public init() {}
 }
 
-public enum StopReason: String, Sendable, Equatable {
+public enum StopReason: String, Sendable, Equatable, CaseIterable {
     /// Reached the bottom: a scroll moved nothing, twice in a row.
     case bottom
     case heightCap
+    /// The image reached `maxPixels` (it is wide as well as tall).
+    case sizeCap
     case timeCap
     case cancelled
     /// A step could not be lined up even after walking back; kept what was safe.
@@ -80,6 +87,7 @@ public enum StopReason: String, Sendable, Equatable {
         switch self {
         case .bottom: nil
         case .heightCap: "Stopped at the height limit"
+        case .sizeCap: "Stopped at the size limit"
         case .timeCap: "Stopped at the time limit"
         case .cancelled: "Stopped early"
         case .lostTrack: "Capture stopped early"
@@ -92,6 +100,7 @@ public enum StopReason: String, Sendable, Equatable {
         switch self {
         case .bottom: ""
         case .heightCap: "The page goes on. Raise the height limit in Settings to get more."
+        case .sizeCap: "The page goes on. This is the biggest image Tallshot makes at this width. Capture a narrower window or pane to get more."
         case .timeCap: "The page goes on. Raise the time limit in Settings to get more."
         case .cancelled: "You moved the mouse or pressed a key. Kept what was captured."
         case .lostTrack: "The page jumped or changed while scrolling and couldn't be lined up. Kept only the part that lined up."
@@ -268,11 +277,19 @@ public final class CaptureSession {
         // accessibility tree offers it, else a trackpad gesture).
         method = ScrollMethod.allCases.first { driver.setScrollMethod($0) } ?? .gesture
         if options.fromTop { try await scrollToTop(start: start) }
+        // The way of scrolling that took it to the top. If another way turns out to be the one
+        // this app follows, the trip to the top didn't count.
+        let topMethod = method
 
         var first = try await settledFrame()
         driver.contentSettled()
         var stitcher = Stitcher(first: first)
         let H = first.height, W = first.width
+        // The tallest the image may get: the height limit, or less for a wide image so its total
+        // pixels stay within the budget. Never less than one screen.
+        let byPixels = max(H, options.maxPixels / max(1, W))
+        let heightLimit = min(options.maxHeight, byPixels)
+        let limitReason: StopReason = byPixels < options.maxHeight ? .sizeCap : .heightCap
         let target = options.stepFraction
         var fraction = options.cautiousStartFraction.map { min($0, target) } ?? target
         var want = max(1, Int(Double(H) * min(options.firstStepFraction, fraction)))
@@ -285,6 +302,7 @@ public final class CaptureSession {
         var rescrolledToTop = false
         var methodCompared = false
         var compareFrom: (method: ScrollMethod, ratio: Double)? = nil
+        var flipTried = false, flippedForTry = false
         var firstHeader = 0, lastFooter = 0
         var movingColumns: Range<Int>? = nil
 
@@ -300,7 +318,7 @@ public final class CaptureSession {
 
         func finish(_ reason: StopReason) -> CaptureResult {
             var footer = lastFooter
-            if stitcher.image.height > options.maxHeight { stitcher.cap(height: options.maxHeight); footer = 0 }
+            if stitcher.image.height > heightLimit { stitcher.cap(height: heightLimit); footer = 0 }
             var image = stitcher.image
             var cropped: Range<Int>? = nil
             if options.cropToMovingColumns, let span = movingColumns {
@@ -321,6 +339,7 @@ public final class CaptureSession {
                 movingColumns = movingColumns.map { min($0.lowerBound, cols.lowerBound)..<max($0.upperBound, cols.upperBound) } ?? cols
             }
             stitcher.add(frame, layout: layout)
+            still = 0   // the page moved, so any earlier "no movement" was not the bottom
             middle = H - layout.header - layout.footer
             driver.contentSettled()
         }
@@ -368,7 +387,7 @@ public final class CaptureSession {
 
         while true {
             if driver.isCancelled { return finish(.cancelled) }
-            if stitcher.image.height >= options.maxHeight { return finish(.heightCap) }
+            if stitcher.image.height >= heightLimit { return finish(limitReason) }
             if driver.now - start >= options.maxSeconds { return finish(.timeCap) }
 
             let sent = try await scroll(wanted: want)
@@ -394,6 +413,7 @@ public final class CaptureSession {
                    case .moved = aligner.align(frame, stitcher.last, expected: want) {
                     // The page went up instead of down: flip, come back, carry on.
                     driver.reverseScrollDirection()
+                    flippedForTry = false
                     try await driver.scroll(pixels: sent)
                     _ = try await settledFrame()
                     continue
@@ -401,8 +421,24 @@ public final class CaptureSession {
             }
 
             if stitcher.steps == 0 && result == .noMovement {
-                // The very first scroll moved nothing. Never report that as the bottom: try the
-                // next way of scrolling, and if nothing works, say so.
+                // The very first scroll moved nothing. Never report that as the bottom. At the
+                // top of a page, a reversed scroll direction looks just like this: try the other
+                // direction once. (At the real bottom that scroll goes up, and the direction check
+                // above flips back and scrolls back.) Then the next way of scrolling; if nothing
+                // works, say so.
+                if !flipTried && !options.fromTop {
+                    flipTried = true
+                    flippedForTry = true
+                    driver.reverseScrollDirection()
+                    directionChecked = false
+                    continue
+                }
+                if flippedForTry {
+                    // That moved nothing either: the app ignores this way of scrolling. Put the
+                    // direction back before trying the next one.
+                    flippedForTry = false
+                    driver.reverseScrollDirection()
+                }
                 if selectNext(after: method) {
                     directionChecked = false
                     continue
@@ -412,10 +448,18 @@ public final class CaptureSession {
 
             switch result {
             case .noMovement:
+                if let c = compareFrom, !methodCompared {
+                    // The other way of scrolling, tried after an overshoot, moved nothing: this
+                    // app may ignore it. Go back to the way that moved, and don't count this step.
+                    _ = select(c.method)
+                    compareFrom = nil
+                    methodCompared = true
+                    continue
+                }
                 still += 1
                 if still >= 2 { return finish(.bottom) }
             case .moved(let layout):
-                if stitcher.steps == 0 && method != .gesture && method != .scrollBar && options.fromTop && !rescrolledToTop {
+                if stitcher.steps == 0 && options.fromTop && method != topMethod && !rescrolledToTop {
                     // The way to the top used a way of scrolling this app ignores: go again.
                     rescrolledToTop = true
                     try await scrollToTop(start: start)
@@ -427,18 +471,20 @@ public final class CaptureSession {
                 failures = 0
                 learn(wanted: want, measured: layout.offset)
                 let ratio = Double(layout.offset) / Double(max(1, want))
+                // How far this way of scrolling goes per pixel actually sent, before any correction,
+                // so two ways are compared fairly.
+                let raw = Double(layout.offset) / Double(max(1, sent))
                 accept(frame, layout)
 
                 // Try another way of scrolling once if this one lands far from the request, and
                 // keep whichever lands closer.
-                let off = farness(ratio)
                 if !methodCompared {
                     if let c = compareFrom {
                         methodCompared = true
-                        if farness(c.ratio) < off { _ = select(c.method) }
+                        if farness(c.ratio) <= farness(raw) { _ = select(c.method) }   // a tie keeps the first
                     } else if ratio > 1.6, method == .gesture || method == .wheelPixels {
                         let other: ScrollMethod = method == .gesture ? .wheelPixels : .gesture
-                        if driver.setScrollMethod(other) { compareFrom = (method, ratio); method = other } else { methodCompared = true }
+                        if driver.setScrollMethod(other) { compareFrom = (method, raw); method = other } else { methodCompared = true }
                     }
                 }
 
@@ -454,12 +500,22 @@ public final class CaptureSession {
                 gain = max(0.03, gain * 0.5)
                 fraction = max(0.15, fraction * 0.6)
                 goodSteps = 0
+                var switchedFrom: ScrollMethod? = nil
                 if !methodCompared, compareFrom == nil, method == .gesture || method == .wheelPixels {
                     let other: ScrollMethod = method == .gesture ? .wheelPixels : .gesture
-                    if driver.setScrollMethod(other) { compareFrom = (method, 99); method = other }
+                    if driver.setScrollMethod(other) { compareFrom = (method, 99); switchedFrom = method; method = other }
                 }
                 if failures > 4 { return finish(.lostTrack) }
-                if !(try await walkBack(from: frame)) {
+                var foundAgain = try await walkBack(from: frame)
+                if !foundAgain, let previous = switchedFrom, !driver.isCancelled, driver.now - start < options.maxSeconds {
+                    // The way of scrolling it switched to couldn't walk back (the app may ignore
+                    // it). Walk back with the way that was moving the page.
+                    _ = select(previous)
+                    compareFrom = nil
+                    methodCompared = true
+                    foundAgain = try await walkBack(from: try await settledFrame())
+                }
+                if !foundAgain {
                     return driver.isCancelled ? finish(.cancelled) : (driver.now - start >= options.maxSeconds ? finish(.timeCap) : finish(.lostTrack))
                 }
                 want = max(1, Int(Double(middle) * fraction))

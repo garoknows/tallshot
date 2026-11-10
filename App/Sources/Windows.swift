@@ -23,6 +23,13 @@ extension Hotkey {
 final class WindowRouter {
     static let shared = WindowRouter()
     private var windows: [String: NSWindow] = [:]
+    private var closeObservers: [String: NSObjectProtocol] = [:]
+
+    /// A closed window is let go, with its view, and made again the next time it's opened.
+    private func forget(_ id: String) {
+        if let o = closeObservers.removeValue(forKey: id) { NotificationCenter.default.removeObserver(o) }
+        windows.removeValue(forKey: id)?.contentView = nil
+    }
 
     func show<V: View>(_ id: String, title: String, _ view: V) {
         if let w = windows[id] {
@@ -36,6 +43,11 @@ final class WindowRouter {
         w.isReleasedWhenClosed = false
         w.center()
         windows[id] = w
+        // Closing tears the view down, so the setup window's once-a-second permission check
+        // stops instead of running on behind a hidden window.
+        closeObservers[id] = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.forget(id) }
+        }
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
     }

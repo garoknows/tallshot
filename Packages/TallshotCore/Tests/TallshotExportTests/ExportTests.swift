@@ -170,7 +170,7 @@ struct PDFTests {
         for p in pages.dropLast() { #expect(blank[p.upperBound - 1] && blank[p.upperBound], "cut through text at row \(p.upperBound)") }
         // The text layer, from known line positions (independent of Vision).
         let lines = (0..<160).map { i in TextLine(text: "Paragraph \(i) about the quarterly plan", x: 40, y: 30 + Double(i) * 62, width: 400, height: 24) }
-        let data = try #require(PDFExport.make(image: cg, pages: pages, lines: lines, pageSize: .letter, title: "Test"))
+        let data = try #require(PDFExport.make(image: cg, pages: pages, lines: lines, pageSize: .letter))
         let pdf = try #require(PDFDocument(data: data))
         #expect(pdf.pageCount == pages.count)
         let text = pdf.string ?? ""
@@ -232,11 +232,15 @@ struct ChatPageExportTests {
     }
 
     @Test func generatorMatchesTheTestPage() {
-        // Spot-check against values computed with the page's own JavaScript.
+        // Values printed by running the page's own JavaScript (site/test/chat/index.html) in
+        // Node, so a change to either generator shows up here.
         let m = Self.messages()
         #expect(m.count == 60)
-        #expect(m[0].user && m[1].who == "Assistant · message 2")
-        #expect(m.allSatisfy { $0.user ? (70..<120).contains($0.height) : (150..<340).contains($0.height) })
+        #expect([0, 1, 2, 17, 58, 59].map { m[$0].height } == [82, 208, 88, 228, 82, 209])
+        #expect(m.map { String($0.paras.count) }.joined() == "131113121112111311131213121113111312131211121113111312111211")
+        #expect(m[1].paras[0] == "Because short line quick number answer also stays part step keeps list order test top stays order next bottom shows plan first keeps left plan first question next line page because careful right again because line moves.")
+        #expect(m[59].paras.last == "Careful step number chip line test box left also column scroll better plan number window step stays right simple bottom quick next scroll middle next quick page short scroll shows value answer small list.")
+        #expect(m[1].who == "Assistant · message 2")
     }
 }
 
@@ -248,31 +252,74 @@ struct ExportPrivacyTests {
         let marker = "Unique marker \(UInt64.random(in: 1...UInt64.max))"
         let doc = ExportDocument(blocks: samplePage + [.paragraph([Inline(marker)])], source: .accessibility)
         let pages = PDFExport.pages(for: px, pageSize: .a4)
-        let pdf = try #require(PDFExport.make(image: cg, pages: pages, lines: [TextLine(text: marker, x: 10, y: 10, width: 300, height: 20)], pageSize: .a4, title: "t"))
+        let pdf = try #require(PDFExport.make(image: cg, pages: pages, lines: [TextLine(text: marker, x: 10, y: 10, width: 300, height: 20)], pageSize: .a4))
         let files: [(ext: String, data: Data)] = [("png", ImageBridge.png(cg)!), ("pdf", pdf), ("docx", Docx.make(doc)), ("md", Data(Markdown.render(doc).utf8))]
         // The chosen folder: a fresh one under the caches (the scan below skips it).
         let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Tallshot-build/export-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let written = try ExportFiles.write(files, baseName: "Tallshot 2026-10-31 at 14.05.22", folder: folder)
-        #expect(Set(written.keys) == ["png", "pdf", "docx", "md"])
-        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) ==
-                ["Tallshot 2026-10-31 at 14.05.22.png", "Tallshot 2026-10-31 at 14.05.22.pdf", "Tallshot 2026-10-31 at 14.05.22.docx", "Tallshot 2026-10-31 at 14.05.22.md"])
-        // A second export never overwrites: all four move to " 2" together.
-        let again = try ExportFiles.write(files, baseName: "Tallshot 2026-10-31 at 14.05.22", folder: folder)
-        #expect(again["md"]?.lastPathComponent == "Tallshot 2026-10-31 at 14.05.22 2.md")
-        // Nothing else, anywhere in temp or caches, holds the exported words or pixels.
-        let needles = [Data(marker.utf8), px.row(px.height / 2).withUnsafeBytes { Data($0) }]
-        let roots = [FileManager.default.temporaryDirectory, FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]]
-        for root in roots {
-            guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                                                         options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { continue }
-            while let url = e.nextObject() as? URL {
-                if url.path.hasPrefix(folder.path) { e.skipDescendants(); continue }
-                guard let v = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]), v.isRegularFile == true,
-                      let m = v.contentModificationDate, m >= started, let data = try? Data(contentsOf: url, options: .alwaysMapped) else { continue }
-                #expect(!needles.contains { data.range(of: $0) != nil }, "export content found in \(url.lastPathComponent)")
-            }
+        let name = "Notes - Trip plan - 2026-10-31 at 14.05 - Tallshot"
+        let exts = files.map(\.ext)
+        let written = ExportFiles.write(files, baseName: ExportFiles.uniqueBaseName(name, extensions: exts, folder: folder, ending: " - Tallshot"), folder: folder)
+        #expect(written.error == nil)
+        #expect(Set(written.files.keys) == ["png", "pdf", "docx", "md"])
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == Set(exts.map { "\(name).\($0)" }))
+        // A second export never overwrites: all four move to " 2" together, before the ending.
+        let second = ExportFiles.uniqueBaseName(name, extensions: exts, folder: folder, ending: " - Tallshot")
+        #expect(second == "Notes - Trip plan - 2026-10-31 at 14.05 2 - Tallshot")
+        let again = ExportFiles.write(files, baseName: second, folder: folder)
+        #expect(again.files["md"]?.lastPathComponent == "Notes - Trip plan - 2026-10-31 at 14.05 2 - Tallshot.md")
+        // Nothing else holds the exported words or pixels. The search decodes PNGs, unpacks PDF
+        // streams and unzips Word files (their data is compressed), and must first find them in
+        // the chosen folder, or it proves nothing.
+        let scanner = DiskScanner(texts: [marker], rows: [Array(px.row(px.height / 2))])
+        for ext in exts {
+            let data = try Data(contentsOf: folder.appendingPathComponent("\(name).\(ext)"))
+            #expect(!scanner.findings(in: data).isEmpty, "the search can't see the content of the .\(ext)")
         }
+        let hits = scanner.scan(PrivacyTests.placesToSearch, topLevelOnly: [PrivacyTests.desktop], changedSince: started, skipping: [folder])
+        for (path, what) in hits { Issue.record("export \(what.sorted().joined(separator: " and ")) found outside the chosen folder: \(path)") }
+    }
+
+    @Test func aFailedSaveKeepsAndReportsWhatWasSaved() throws {
+        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Tallshot-build/export-fail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // Someone else's file already has the PDF's name, so that write fails part way.
+        let theirs = folder.appendingPathComponent("X - Tallshot.pdf")
+        try Data("theirs".utf8).write(to: theirs)
+        let files: [(ext: String, data: Data)] = [("png", Data([1, 2, 3])), ("pdf", Data([4])), ("md", Data([5]))]
+        let written = ExportFiles.write(files, baseName: "X - Tallshot", folder: folder)
+        #expect(written.error != nil)
+        #expect(written.files.keys.sorted() == ["png"])
+        #expect(try Data(contentsOf: theirs) == Data("theirs".utf8), "someone else's file must not be touched")
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("X - Tallshot.md").path))
+    }
+    @Test func uniqueNamesWithoutTheEndingStillWork() throws {
+        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Tallshot-build/export-uniq-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data().write(to: folder.appendingPathComponent("Plain.png"))
+        #expect(ExportFiles.uniqueBaseName("Plain", extensions: ["png"], folder: folder, ending: " - Tallshot") == "Plain 2")
+    }
+
+    @Test func wordNumberedListsEachStartAtOne() {
+        let doc = ExportDocument(blocks: [
+            .listItem(level: 0, ordered: true, [Inline("one")]), .listItem(level: 0, ordered: true, [Inline("two")]),
+            .paragraph([Inline("between")]),
+            .listItem(level: 0, ordered: true, [Inline("again one")]),
+        ], source: .accessibility)
+        let data = Docx.make(doc)
+        let xml = docxXML(data)
+        #expect(xml.contains("<w:numId w:val=\"2\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">two"))
+        #expect(xml.contains("<w:numId w:val=\"3\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">again one"))
+        let numbering = String(decoding: Zip.entries(data)["word/numbering.xml"] ?? Data(), as: UTF8.self)
+        #expect(numbering.contains("<w:num w:numId=\"3\"><w:abstractNumId w:val=\"1\"/><w:lvlOverride w:ilvl=\"0\"><w:startOverride w:val=\"1\"/>"))
+    }
+    @Test func wordKeepsLineBreaksAndDropsInvalidCharacters() {
+        let doc = ExportDocument(blocks: [.paragraph([Inline("Hello\nWorld\u{FFFF}")])], source: .accessibility)
+        let xml = docxXML(Docx.make(doc))
+        #expect(xml.contains("<w:t xml:space=\"preserve\">Hello</w:t><w:br/><w:t xml:space=\"preserve\">World</w:t>"))
+        #expect(!xml.contains("\u{FFFF}"))
     }
 }

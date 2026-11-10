@@ -56,6 +56,7 @@ final class AccessibilitySwitch {
 
     let app: AXUIElement
     private var enhancedBefore: Bool?
+    private var manualTurnedOn = false
     private(set) var changedSomething = false
 
     init(pid: pid_t, bundleID: String?) {
@@ -63,7 +64,10 @@ final class AccessibilitySwitch {
         AXUIElementSetMessagingTimeout(app, 1.0)
         // Electron's switch. Apps that don't know it just say "unsupported".
         if !Self.bool(app, "AXManualAccessibility") {
-            if AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success { changedSomething = true }
+            if AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success {
+                changedSomething = true
+                manualTurnedOn = true
+            }
         }
         // Chromium browsers' switch. Remember the old value: it can disturb window animations.
         if let id = bundleID, Self.chromiumBrowsers.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) {
@@ -75,8 +79,13 @@ final class AccessibilitySwitch {
         }
     }
 
-    /// Puts `AXEnhancedUserInterface` back the way it was.
+    /// Puts both switches back the way they were, so the app doesn't keep its full
+    /// accessibility tree (and its cost) after the capture.
     func restore() {
+        if manualTurnedOn {
+            AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanFalse)
+            manualTurnedOn = false
+        }
         guard let before = enhancedBefore, !before else { return }
         AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
         enhancedBefore = nil
@@ -129,11 +138,12 @@ enum TargetFinder {
         if !own {
             axSwitch = AccessibilitySwitch(pid: window.pid, bundleID: bundleID)
             hit = lookUp(at: probe, pid: window.pid, window: window.bounds)
-            // A tree that was just switched on takes a moment to build.
-            var waited = 0
-            while (hit == nil || hit?.kind == .webArea) && waited < waitMs && (axSwitch?.changedSomething ?? false || hit == nil) {
+            // A tree that was just switched on takes a moment to build. The limit is wall-clock
+            // time: in an app that has stopped responding, each look-up itself can take a second.
+            let deadline = ProcessInfo.processInfo.systemUptime + Double(waitMs) / 1000
+            while (hit == nil || hit?.kind == .webArea) && ProcessInfo.processInfo.systemUptime < deadline
+                    && (axSwitch?.changedSomething ?? false || hit == nil) {
                 try? await Task.sleep(for: .milliseconds(50))
-                waited += 50
                 if let again = lookUp(at: probe, pid: window.pid, window: window.bounds) {
                     hit = again
                     if again.kind == .scrollArea || again.kind == .webElement { break }
@@ -154,7 +164,11 @@ enum TargetFinder {
         region = region.integral
         guard region.width >= 20 && region.height >= 20 else { axSwitch?.restore(); return nil }
         let inside = region.insetBy(dx: 4, dy: 4)
-        let scrollPoint = (kind == .webArea || kind == .window) && inside.contains(probe) ? probe : CGPoint(x: region.midX, y: region.midY)
+        var scrollPoint = (kind == .webArea || kind == .window) && inside.contains(probe) ? probe : CGPoint(x: region.midX, y: region.midY)
+        // Scroll events go to whatever window is on top at that point.
+        let all = windowList()
+        scrollPoint = WindowChoice.scrollPoint(preferred: scrollPoint, probe: probe, region: inside,
+                                               frames: all.map(\.bounds), ids: all.map(\.id), target: window.id)
         let target = CaptureTarget(region: region, windowID: window.id, windowFrame: window.bounds, pid: window.pid, kind: kind,
                                    appName: window.owner, bundleID: bundleID, scrollPoint: scrollPoint,
                                    scrollBar: kind == .scrollArea ? hit?.scrollBar : nil, contentHeight: hit?.contentHeight,
@@ -177,44 +191,46 @@ enum TargetFinder {
         return false
     }
 
-    /// What a capture's file name may say. A browser whose private windows can't be told apart
-    /// has nothing read from it. Only a field's type is checked, never what's typed in it.
+    /// What a capture's file name may say: the window or page title and, in a browser, the page's
+    /// address (only its domain is used). Only a field's type is checked, never what's typed in it.
+    /// Tallshot's own window is never asked anything: its main thread would be waiting on itself.
     static func nameFacts(for target: CaptureTarget) -> CaptureName.Facts {
         let running = NSRunningApplication(processIdentifier: target.pid)
         let kind = CaptureName.kind(bundleID: target.bundleID, isBrowser: isWebBrowser(bundleID: target.bundleID, app: running))
-        var facts = CaptureName.Facts(appName: target.appName, kind: kind,
-                                      englishLanguage: Locale.preferredLanguages.first?.hasPrefix("en") ?? false)
-        guard kind != .uncheckableBrowser else { return facts }
-        let app = AXUIElementCreateApplication(target.pid)
-        AXUIElementSetMessagingTimeout(app, 0.5)
-        if let focused: AXUIElement = attribute(app, kAXFocusedUIElementAttribute),
-           string(focused, kAXSubroleAttribute) == (kAXSecureTextFieldSubrole as String) {
-            facts.passwordFieldFocused = true
-            return facts
-        }
-        guard let windows: [AXUIElement] = attribute(app, kAXWindowsAttribute),
-              let window = windows.first(where: { frame($0).map { sameFrame($0, target.windowFrame) } ?? false }) else { return facts }
-        let title = string(window, kAXTitleAttribute)
-        facts.title = title
-        switch kind {
-        case .checkableBrowser:
-            if let page = webArea(for: target, window: window) {
-                facts.pageURL = (attribute(page, kAXURLAttribute) as URL?)?.absoluteString ?? string(page, kAXURLAttribute)
-            }
-        case .ordinary:
-            // Many Electron apps name the window after themselves and the page after what's open.
-            if title?.isEmpty ?? true || title == target.appName, let page = webArea(for: target, window: window) {
-                let named = [string(page, kAXTitleAttribute), string(page, kAXDescriptionAttribute)].compactMap { $0 }
-                facts.title = named.first { !$0.isEmpty } ?? title
-            }
-        case .uncheckableBrowser:
-            break
-        }
-        return facts
+        return NameFacts.read(from: AccessibilityNameSource(target: target), appName: target.appName, kind: kind,
+                              englishLanguage: Locale.preferredLanguages.first?.hasPrefix("en") ?? false,
+                              windowFrame: target.windowFrame, isOwnApp: target.pid == ProcessInfo.processInfo.processIdentifier)
     }
 
-    private static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
-        abs(a.minX - b.minX) < 2 && abs(a.minY - b.minY) < 2 && abs(a.width - b.width) < 2 && abs(a.height - b.height) < 2
+    /// Answers `NameFacts`' questions with accessibility calls. Every element it asks gets a short
+    /// time limit, so an app that has stopped responding holds the capture up for at most about
+    /// half a second per question.
+    struct AccessibilityNameSource: NameFactsSource {
+        let target: CaptureTarget
+        let app: AXUIElement
+        static let timeout: Float = 0.5
+
+        init(target: CaptureTarget) {
+            self.target = target
+            app = AXUIElementCreateApplication(target.pid)
+        }
+
+        @discardableResult
+        static func limited(_ el: AXUIElement) -> AXUIElement {
+            AXUIElementSetMessagingTimeout(el, timeout)
+            return el
+        }
+
+        func focusedElement() -> AXUIElement? { attribute(Self.limited(app), kAXFocusedUIElementAttribute) }
+        func subrole(of e: AXUIElement) -> String? { string(Self.limited(e), kAXSubroleAttribute) }
+        func windows() -> [AXUIElement] { attribute(Self.limited(app), kAXWindowsAttribute) ?? [] }
+        func frame(of e: AXUIElement) -> CGRect? { TargetFinder.frame(Self.limited(e)) }
+        func title(of e: AXUIElement) -> String? { string(Self.limited(e), kAXTitleAttribute) }
+        func url(of e: AXUIElement) -> String? {
+            (attribute(Self.limited(e), kAXURLAttribute) as URL?)?.absoluteString ?? string(e, kAXURLAttribute)
+        }
+        func pageDescription(of e: AXUIElement) -> String? { string(Self.limited(e), kAXDescriptionAttribute) }
+        func webArea(in window: AXUIElement) -> AXUIElement? { TargetFinder.webArea(for: target, window: window) }
     }
 
     /// Any app macOS knows can open web links, plus the browsers already known by name.
@@ -229,18 +245,18 @@ enum TargetFinder {
 
     /// The web page holding the captured area: above the pane, or else found below the window
     /// without going inside any page. Gives up rather than hold up the capture.
-    private static func webArea(for target: CaptureTarget, window: AXUIElement) -> AXUIElement? {
+    nonisolated static func webArea(for target: CaptureTarget, window: AXUIElement) -> AXUIElement? {
         let role = "AXWebArea"
         var el = target.textRoot
         for _ in 0..<30 {
-            guard let current = el else { break }
+            guard let current = el.map(AccessibilityNameSource.limited) else { break }
             if string(current, kAXRoleAttribute) == role { return current }
             el = attribute(current, kAXParentAttribute)
         }
         var queue = [window], visited = 0
         let deadline = ProcessInfo.processInfo.systemUptime + 0.25
         while !queue.isEmpty, visited < 300, ProcessInfo.processInfo.systemUptime < deadline {
-            let node = queue.removeFirst()
+            let node = AccessibilityNameSource.limited(queue.removeFirst())
             visited += 1
             if string(node, kAXRoleAttribute) == role {
                 if frame(node)?.contains(target.center) ?? false { return node }
@@ -353,15 +369,15 @@ enum TargetFinder {
         return heights.max()
     }
 
-    static func attribute<T>(_ el: AXUIElement, _ name: String) -> T? {
+    nonisolated static func attribute<T>(_ el: AXUIElement, _ name: String) -> T? {
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success, let v else { return nil }
         return v as? T
     }
 
-    static func string(_ el: AXUIElement, _ name: String) -> String? { attribute(el, name) }
+    nonisolated static func string(_ el: AXUIElement, _ name: String) -> String? { attribute(el, name) }
 
-    static func frame(_ el: AXUIElement) -> CGRect? {
+    nonisolated static func frame(_ el: AXUIElement) -> CGRect? {
         guard let p: AXValue = attribute(el, kAXPositionAttribute), let s: AXValue = attribute(el, kAXSizeAttribute) else { return nil }
         var origin = CGPoint.zero, size = CGSize.zero
         guard AXValueGetValue(p, .cgPoint, &origin), AXValueGetValue(s, .cgSize, &size) else { return nil }

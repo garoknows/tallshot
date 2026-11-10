@@ -80,7 +80,7 @@ struct SplitWindowTests {
             #expect(keep.upperBound <= other.lowerBound + 12 || keep.lowerBound >= other.upperBound - 12)
         }
         let rep = BarcodeCheck.verdict(for: r.image)
-        #expect(rep?.passed == true && rep?.report.first == 0)
+        #expect(rep?.passed == true && rep?.report.first == 0 && rep?.report.last == 2399, "\(String(describing: rep?.report))")
     }
 }
 
@@ -336,6 +336,8 @@ struct HoverCardTests {
         let r = try await run(w)
         #expect(r.reason == .bottom)
         #expect(r.image.height == w.expected(from: 0).height)
+        let rep = report(r, w)
+        #expect(rep.isClean && rep.first == 0 && rep.last == w.page.height - 1, "\(rep)")
     }
 
     @Test func wholePageIsCaptured() async throws {
@@ -343,6 +345,8 @@ struct HoverCardTests {
         let r = try await run(w)
         #expect(r.reason == .bottom)
         #expect(r.image.height == w.expected(from: 0).height)
+        let rep = report(r, w)
+        #expect(rep.isClean && rep.first == 0 && rep.last == w.page.height - 1, "\(rep)")
     }
 
     @Test func gettingLostDoesNotLoopUntilTheTimeLimit() async throws {

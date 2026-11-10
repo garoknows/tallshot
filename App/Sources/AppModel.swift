@@ -43,7 +43,7 @@ enum Permissions {
 
     /// Quits, and opens this same copy of Tallshot again once it has fully quit, so the old copy
     /// and the new one never compete for the hotkey.
-    static func quitAndReopen() {
+    @MainActor static func quitAndReopen() {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", #"while kill -0 "$0" 2>/dev/null; do sleep 0.1; done; exec /usr/bin/open "$1""#,
@@ -69,6 +69,9 @@ final class AppModel: ObservableObject {
     private init() {}
 
     func start() {
+        // A time limit for every accessibility question Tallshot asks another app, so one that has
+        // stopped responding can't hold Tallshot up for long (macOS's default is 6 seconds).
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
         registerHotkeys()
         if !Permissions.allGranted || !settings.setupShown { WindowRouter.shared.showSetup() }
     }
@@ -98,6 +101,14 @@ final class AppModel: ObservableObject {
     /// A hotkey was recorded. One macOS refuses is never kept: the old one comes back, and the
     /// field says why.
     func hotkeyChanged(slot: UInt32, previous: Hotkey?) {
+        // The same keys for both: macOS would refuse the second, but the reason isn't another app.
+        if let a = settings.captureHotkey, a == settings.fromTopHotkey {
+            let taken = a.display
+            if slot == 1 { settings.captureHotkey = previous } else { settings.fromTopHotkey = previous }
+            registerHotkeys()
+            hotkeyWarnings[slot] = "\(taken) is already the \(slot == 1 ? "Capture from Top" : "Capture") hotkey. Pick a different one."
+            return
+        }
         let ok = registerHotkeys()
         guard ok[slot] == false else { return }
         let refused = (slot == 1 ? settings.captureHotkey : settings.fromTopHotkey)?.display ?? ""
@@ -133,6 +144,8 @@ final class AppModel: ObservableObject {
         guard !isCapturing else { return }
         guard Permissions.allGranted else { WindowRouter.shared.showSetup(); return }
         let pointer = fromMenu ? nil : TargetFinder.pointerLocation()
+        // A pop-up from the last capture could sit over the pane and catch the scrolling.
+        Toast.hideNow()
         // Pointing at the self-test page and pressing the hotkey runs the self-test the real way.
         if let pointer, SelfTest.shared.contains(pointer) { SelfTest.shared.runFromHotkey(); return }
         isCapturing = true
@@ -148,7 +161,10 @@ final class AppModel: ObservableObject {
                 ? CaptureName.descriptive(TargetFinder.nameFacts(for: target), date: Date())
                 : CaptureName.plain(date: Date())
             do {
-                let run = try await Self.run(target: target, options: settings.captureOptions(fromTop: fromTop), collectText: settings.needsText)
+                // Wait for the keys of the hotkey that was actually pressed.
+                let key = (fromTop ? settings.fromTopHotkey : settings.captureHotkey)?.keyCode
+                let run = try await Self.run(target: target, options: settings.captureOptions(fromTop: fromTop),
+                                             hotkeyKeyCode: key, collectText: settings.needsText)
                 await deliver(run.result, capturer: run.capturer, target: target, text: run.text, baseName: baseName)
             } catch is CancellationError {
                 Toast.show(message: "Cancelled.", detail: "Nothing was saved or copied.", near: target.region)

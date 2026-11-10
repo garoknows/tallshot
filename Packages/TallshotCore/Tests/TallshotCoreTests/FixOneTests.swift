@@ -167,8 +167,8 @@ struct OverlayTests {
         #expect(mismatch(r.image.rows(0..<contentEnd), ideal.rows(0..<contentEnd)) == nil)
         let last = w.render(at: w.maxPos)
         #expect(mismatch(r.image.rows(contentEnd..<r.image.height), last.rows((w.height - r.footer)..<w.height)) == nil)
-        // Every row of the page appears: the content plus what shows through the last overlay.
-        #expect(contentEnd - w.h + r.footer >= w.page.height - w.maxPos)
+        // Every row of the page appears exactly once: header, the whole page, footer.
+        #expect(r.image.height == w.maxPos + w.height, "image \(r.image.height) px, expected \(w.maxPos + w.height)")
         let v = BarcodeCheck.verdict(for: r.image, rows: r.header..<contentEnd)
         #expect(v?.passed == true)
         #expect(v?.report.first == 0)
@@ -199,6 +199,10 @@ struct OverlayTests {
         #expect(mismatch(r.image.rows(0..<contentEnd), w.expected(from: 0).rows(0..<contentEnd)) == nil,
                 "footer \(r.footer) height \(r.image.height) steps \(r.steps) \(mismatch(r.image.rows(0..<contentEnd), w.expected(from: 0).rows(0..<contentEnd)) ?? "")")
         #expect(BarcodeCheck.verdict(for: r.image, rows: r.header..<contentEnd)?.passed == true)
+        // Nothing missing between the content and the box: the bottom is the last frame, and the
+        // image is header, the whole page and footer, once.
+        #expect(mismatch(r.image.rows(contentEnd..<r.image.height), w.render(at: w.maxPos).rows((w.height - r.footer)..<w.height)) == nil)
+        #expect(r.image.height == w.maxPos + w.height, "image \(r.image.height) px, expected \(w.maxPos + w.height)")
     }
 
     @Test func chatLayoutWithEverything() async throws {
@@ -215,6 +219,8 @@ struct OverlayTests {
         let v = BarcodeCheck.verdict(for: r.image, rows: r.header..<contentEnd)
         #expect(v?.passed == true)
         #expect(v?.report.first == 0)
+        #expect(mismatch(r.image.rows(contentEnd..<r.image.height), w.render(at: w.maxPos).rows((w.height - r.footer)..<w.height)) == nil)
+        #expect(r.image.height == w.maxPos + w.height, "image \(r.image.height) px, expected \(w.maxPos + w.height)")
     }
 }
 
@@ -279,7 +285,7 @@ struct BarcodeCheckTests {
 }
 
 extension StopReason {
-    static let allCasesEarly: [StopReason] = [.heightCap, .timeCap, .cancelled, .lostTrack, .didNotScroll]
+    static let allCasesEarly: [StopReason] = allCases.filter(\.isEarly)
 }
 
 @Suite("Overshoot", .serialized)
@@ -311,6 +317,8 @@ struct OvershootTests {
         let keep = try #require(r.croppedColumns)
         #expect(mismatch(r.image.rows(0..<contentEnd), w.expected(from: 0).columns(keep).rows(0..<contentEnd)) == nil)
         #expect(BarcodeCheck.verdict(for: r.image, rows: r.header..<contentEnd)?.passed == true)
+        // Header, the whole page and footer, once (cropping keeps the height).
+        #expect(r.image.height == w.maxPos + w.height, "image \(r.image.height) px, expected \(w.maxPos + w.height)")
     }
 
     @Test func overshootFromTop() async throws {

@@ -10,13 +10,21 @@ on:
         description: Version to stamp into the dry-run build
         default: "0.0.0"
 
+# Read-only unless a job asks for more. Only the publish job can write (to create the release).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  # Tests, builds, signs, notarizes and checks the DMG, then hands dist/ to the publish job.
+  # It can't change the repository: its token is read-only and isn't left in .git/config.
+  build:
     runs-on: macos-latest
     timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     env:
       APP_NAME: Tallshot
       # Signing and notarizing turn on automatically when these repository secrets exist.
@@ -24,20 +32,38 @@ jobs:
       HAS_SIGNING: ${{ secrets.MACOS_CERTIFICATE_P12 != '' && secrets.APPLE_TEAM_ID != '' }}
       HAS_NOTARY: ${{ secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER_ID != '' && secrets.APPLE_API_KEY_P8 != '' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
+      # The version comes from the tag or the dry-run input. It must look like 1.2.3 or
+      # 1.2.3-beta.1 before anything uses it; later steps read it only as "$VERSION".
       - name: Version from tag
         id: v
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then V="$INPUT_VERSION"; else V="${GITHUB_REF_NAME#v}"; fi
+          if ! printf '%s' "$V" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?' || [ "$(printf '%s' "$V" | wc -l)" -ne 0 ]; then
+            echo "::error::Version must look like 1.2.3 or 1.2.3-beta.1"
+            exit 1
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          # 0.x versions are early previews: published as GitHub pre-releases.
-          case "$V" in 0.*) echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=" >> "$GITHUB_OUTPUT" ;; esac
+          # 0.x versions are previews, published as GitHub pre-releases; 1.0 and later are full releases.
+          case "$V" in 0.*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+
+      # Every tool from outside macOS is installed now, before the signing key exists on this
+      # machine, so none of it can ever run while the key is unlocked.
+      - name: Install XcodeGen (pinned version, checksum checked)
+        run: |
+          BIN="$(scripts/install-xcodegen.sh "$RUNNER_TEMP/xcodegen")"
+          echo "$BIN" >> "$GITHUB_PATH"
 
       - name: Tests (engine and offscreen harness)
         run: swift test -c release --package-path Packages/TallshotCore
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
 
       - name: Import Developer ID certificate
         if: env.HAS_SIGNING == 'true'
@@ -59,12 +85,12 @@ jobs:
           sed "s/YOURTEAMID/$TEAM_ID/" Config/Signing.xcconfig.example > Config/Signing.xcconfig
 
       - name: Build (Release)
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
-          brew install xcodegen
-          xcodegen generate
           xcodebuild -project Tallshot.xcodeproj -scheme Tallshot \
             -configuration Release -destination "generic/platform=macOS" \
-            -derivedDataPath build.nosync/dd MARKETING_VERSION="${{ steps.v.outputs.version }}" build
+            -derivedDataPath build.nosync/dd MARKETING_VERSION="$VERSION" build
           mkdir -p dist
           ditto "build.nosync/dd/Build/Products/Release/$APP_NAME.app" "dist/$APP_NAME.app"
           codesign --verify --deep --strict --verbose=2 "dist/$APP_NAME.app"
@@ -89,11 +115,12 @@ jobs:
           scripts/notarize.sh "$RUNNER_TEMP/notarize-app.zip" "dist/$APP_NAME.app"
 
       - name: Package DMG
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
-          V="${{ steps.v.outputs.version }}"
-          scripts/make-dmg.sh "dist/$APP_NAME.app" "dist/Tallshot-$V.dmg"
+          scripts/make-dmg.sh "dist/$APP_NAME.app" "dist/Tallshot-$VERSION.dmg"
           if [ "$HAS_SIGNING" = "true" ]; then
-            codesign --sign "Developer ID Application" --timestamp "dist/Tallshot-$V.dmg"
+            codesign --sign "Developer ID Application" --timestamp "dist/Tallshot-$VERSION.dmg"
           fi
 
       - name: Notarize and staple the DMG
@@ -101,19 +128,21 @@ jobs:
         env:
           ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
           export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
-          scripts/notarize.sh "dist/Tallshot-${{ steps.v.outputs.version }}.dmg"
+          scripts/notarize.sh "dist/Tallshot-$VERSION.dmg"
 
       - name: Verify Developer ID signature and notarization
         if: env.HAS_SIGNING == 'true' && env.HAS_NOTARY == 'true'
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
-          V="${{ steps.v.outputs.version }}"
           codesign -dv --verbose=2 "dist/$APP_NAME.app" 2>&1 | grep -E "^Authority|flags="
           spctl --assess --type execute --verbose=2 "dist/$APP_NAME.app"
-          spctl --assess --type open --context context:primary-signature --verbose=2 "dist/Tallshot-$V.dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "dist/Tallshot-$VERSION.dmg"
           xcrun stapler validate "dist/$APP_NAME.app"
-          xcrun stapler validate "dist/Tallshot-$V.dmg"
+          xcrun stapler validate "dist/Tallshot-$VERSION.dmg"
 
       - name: Checksums
         run: (cd dist && shasum -a 256 *.dmg > SHA256SUMS.txt && cat SHA256SUMS.txt)
@@ -126,14 +155,51 @@ jobs:
             cat docs/UNSIGNED_NOTE.md >> dist/notes.md
           fi
 
+      - name: Keep the release files for the publish job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-files
+          path: |
+            dist/*.dmg
+            dist/SHA256SUMS.txt
+            dist/notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+      # Runs even when a step above failed or the run was cancelled.
+      - name: Remove the signing keychain and the API key
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/cert.p12" Config/Signing.xcconfig
+
+  # Creates the GitHub release from the build job's files. Only on a pushed tag; a manual
+  # (dry) run never gets here. No signing key or Apple secret is available in this job.
+  publish:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: dist
+
       - name: Publish GitHub release (skipped if the release already exists)
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists; leaving it as published."
             exit 0
           fi
-          gh release create "$GITHUB_REF_NAME" dist/*.dmg dist/SHA256SUMS.txt ${{ steps.v.outputs.prerelease }} \
-            --title "Tallshot ${{ steps.v.outputs.version }}" --notes-file dist/notes.md
+          FLAGS=()
+          [ "$PRERELEASE" = "true" ] && FLAGS+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/*.dmg dist/SHA256SUMS.txt "${FLAGS[@]}" \
+            --verify-tag --title "Tallshot $VERSION" --notes-file dist/notes.md

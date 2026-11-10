@@ -204,6 +204,8 @@ struct OffscreenChatTests {
         let v = BarcodeCheck.verdict(for: r.image, rows: r.header..<contentEnd)
         #expect(v?.passed == true)
         #expect(v?.report.first == 0)
+        // Nothing lost between the content and the band: header, every row and footer, once.
+        #expect(r.image.height == ideal.height, "image \(r.image.height) px, expected \(ideal.height)")
     }
 
     @Test(arguments: [2.5, 3.5])

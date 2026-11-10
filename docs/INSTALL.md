@@ -8,7 +8,7 @@
 
 ### If macOS says it can't check Tallshot
 
-Early previews may not be signed and notarized by Apple yet. If macOS says *"Tallshot" can't be opened because Apple cannot check it for malicious software*:
+Early previews (0.x) may not be signed and notarized by Apple yet; the release page says so when one isn't. If macOS says *"Tallshot" can't be opened because Apple cannot check it for malicious software*:
 
 1. Click **Done** (not Move to Trash).
 2. Open **System Settings → Privacy & Security**.
@@ -40,8 +40,8 @@ Each step turns green by itself. Then click **Run Self-Test**: Tallshot captures
 - Esc, a click, a key or moving the mouse stops it and keeps what was captured.
 - Settings (menu → Settings…):
   - **General:** the hotkeys (with a warning under the field if macOS or another app already uses one), Capture (pane under the pointer, or the whole window), Open at login.
-  - **Output:** the save folder; Also save as PNG, PDF, Word (.docx), Markdown (.md); Copy as image or text; PDF page size; the preview pop-up; the shutter sound.
-  - **Capture:** scroll speed, the height and time limits, and the optional diagnostic report and where it goes.
+  - **Output:** the save folder; File names (app, title and date, or the date only); Also save as PNG, PDF, Word (.docx), Markdown (.md); Copy as image or text; PDF page size; the preview pop-up; the shutter sound.
+  - **Capture:** scroll speed, the height and time limits (a very wide capture also stops at 50 million pixels in all), and the optional diagnostic report and where it goes.
 
 ## Building from source
 
@@ -53,7 +53,7 @@ cd tallshot
 scripts/install.sh
 ```
 
-It installs to `~/Applications`. Set `TALLSHOT_DEST=/Applications` to install for all users.
+It installs to `~/Applications`, and replaces a running Tallshot only after the new build passes its signature check. Set `TALLSHOT_DEST=/Applications` to install for all users.
 
 ## Uninstalling
 

@@ -71,5 +71,52 @@ FAKE_OUTPUT="code object is not signed at all" FAKE_DISPLAY_EXIT=1 verify && bad
 export TALLSHOT_SIGNING_CONFIG="$W/none.xcconfig"
 PATH="$W/bin:$PATH" FAKE_OUTPUT="" "$ROOT/scripts/verify-signed.sh" /fake.app >/dev/null 2>&1 && ok "no config file: not an error" || bad "no config file should be fine"
 
+# install.sh, run from a copy of the scripts with stand-in tools (no real build): a build signed by
+# the wrong identity must leave the running Tallshot and the installed copy alone.
+echo "Installing"
+R="$W/repo"; mkdir -p "$R" "$W/dest/Tallshot.app"; cp -R "$ROOT/scripts" "$R/"
+touch "$W/dest/Tallshot.app/old-copy"
+for tool in xcodegen mdfind; do printf '#!/bin/bash\nexit 0\n' > "$W/bin/$tool"; done
+printf '#!/bin/bash\necho /Applications/Xcode.app/Contents/Developer\n' > "$W/bin/xcode-select"
+cat > "$W/bin/security" <<FAKE
+#!/bin/bash
+echo '  1) 0123456789ABCDEF "Developer ID Application: Test ($T)"'
+FAKE
+cat > "$W/bin/xcodebuild" <<'FAKE'
+#!/bin/bash
+while [ $# -gt 0 ]; do [ "$1" = -derivedDataPath ] && DD="$2"; shift; done
+mkdir -p "$DD/Build/Products/Release/Tallshot.app/Contents"; touch "$DD/Build/Products/Release/Tallshot.app/new-copy"
+plutil -create xml1 "$DD/Build/Products/Release/Tallshot.app/Contents/Info.plist"
+plutil -insert CFBundleIdentifier -string io.github.garoknows.tallshot "$DD/Build/Products/Release/Tallshot.app/Contents/Info.plist"
+FAKE
+printf '#!/bin/bash\n[ ! -e "%s/killed" ]\n' "$W" > "$W/bin/pgrep"
+printf '#!/bin/bash\ntouch "%s/killed"\n' "$W" > "$W/bin/pkill"
+printf '#!/bin/bash\ntouch "%s/opened"\n' "$W" > "$W/bin/open"
+chmod +x "$W/bin/"*
+printf 'DEVELOPMENT_TEAM = %s\n' "$T" > "$TALLSHOT_SIGNING_CONFIG"
+install() { PATH="$W/bin:$PATH" TALLSHOT_SIGNING_CONFIG="$W/Signing.xcconfig" TALLSHOT_BUILD_DIR="$W/build" TALLSHOT_DEST="$W/dest" \
+  "$R/scripts/install.sh" >"$W/install.log" 2>&1; }
+export TALLSHOT_SIGNING_CONFIG="$W/Signing.xcconfig"
+FAKE_OUTPUT="Signature=adhoc
+TeamIdentifier=not set" FAKE_REQ="designated => cdhash H\"00\"" install && bad "install with a wrong signature succeeded" || ok "a wrongly signed build is refused"
+[ ! -e "$W/killed" ] && ok "  ...and the running Tallshot is left running" || bad "the running Tallshot was quit for a build that was refused"
+[ -e "$W/dest/Tallshot.app/old-copy" ] && ok "  ...and the installed copy is untouched" || bad "the installed copy was changed"
+rm -f "$W/killed" "$W/opened"
+FAKE_OUTPUT="$GOOD" install && ok "a build signed with the Developer ID installs" || { bad "a good build was refused"; cat "$W/install.log"; }
+[ -e "$W/killed" ] && [ -e "$W/dest/Tallshot.app/new-copy" ] && [ ! -e "$W/dest/Tallshot.app/old-copy" ] && [ -e "$W/opened" ] \
+  && ok "  ...replacing the running copy and opening the new one" || bad "a good build wasn't installed and opened"
+# --remove-other-copies must never remove the copy it just installed, however the folder was
+# typed (here with a trailing slash; Spotlight reports the plain path).
+DESTREAL="$(cd "$W/dest" && pwd -P)"
+cat > "$W/bin/mdfind" <<FAKE
+#!/bin/bash
+echo "$DESTREAL/Tallshot.app"
+FAKE
+chmod +x "$W/bin/mdfind"
+FAKE_OUTPUT="$GOOD" PATH="$W/bin:$PATH" TALLSHOT_SIGNING_CONFIG="$W/Signing.xcconfig" TALLSHOT_BUILD_DIR="$W/build" TALLSHOT_DEST="$W/dest/" \
+  "$R/scripts/install.sh" --remove-other-copies >"$W/install.log" 2>&1
+[ -e "$W/dest/Tallshot.app/new-copy" ] && ok "--remove-other-copies keeps the copy it just installed" || { bad "--remove-other-copies deleted the new install"; cat "$W/install.log"; }
+printf '#!/bin/bash\nexit 0\n' > "$W/bin/mdfind"
+
 [ $FAIL = 0 ] && echo "All signing check tests passed." || echo "Signing check tests FAILED."
 exit $FAIL

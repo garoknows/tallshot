@@ -74,7 +74,12 @@ public struct PixelImage: Equatable, Sendable {
 
     // MARK: Building a tall image
 
-    mutating func reserveRows(_ n: Int) { pixels.reserveCapacity((height + n) * width) }
+    /// Makes room for `n` more rows. Grows by half again at a time: reserving exactly what's
+    /// needed would copy the whole tall image on every step.
+    mutating func reserveRows(_ n: Int) {
+        let need = (height + n) * width
+        if pixels.capacity < need { pixels.reserveCapacity(max(need, pixels.capacity + pixels.capacity / 2)) }
+    }
 
     /// Appends rows `range` of `source`, optionally painting some columns a flat color.
     mutating func appendRows(of source: PixelImage, _ range: Range<Int>, paint: [(Range<Int>, UInt32)] = []) {

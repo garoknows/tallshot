@@ -38,15 +38,20 @@ public enum Docx {
                 return "<w:hyperlink r:id=\"\(id)\">" + run(s.text, style: "Hyperlink") + "</w:hyperlink>"
             }.joined()
         }
+        // Each numbered list gets its own numbering, so a second list starts again at 1.
+        var orderedLists = 0, previousWasList = false
         for block in doc.blocks {
+            defer { if case .listItem = block { previousWasList = true } else { previousWasList = false } }
             switch block {
             case .heading(let level, let spans):
                 body += paragraph(style: "Heading\(min(3, max(1, level)))", runs: runs(spans))
             case .paragraph(let spans):
                 body += paragraph(style: nil, runs: runs(spans))
             case .listItem(let level, let ordered, let spans):
+                if ordered && (!previousWasList || orderedLists == 0) { orderedLists += 1 }
+                let numID = ordered ? 1 + orderedLists : 1
                 body += "<w:p><w:pPr><w:pStyle w:val=\"ListParagraph\"/><w:numPr><w:ilvl w:val=\"\(min(8, max(0, level)))\"/>"
-                    + "<w:numId w:val=\"\(ordered ? 2 : 1)\"/></w:numPr></w:pPr>\(runs(spans))</w:p>"
+                    + "<w:numId w:val=\"\(numID)\"/></w:numPr></w:pPr>\(runs(spans))</w:p>"
             case .code(let text):
                 let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { run(String($0)) }
                 body += paragraph(style: "Code", runs: lines.joined(separator: "<w:r><w:br/></w:r>"))
@@ -69,7 +74,7 @@ public enum Docx {
             ("word/document.xml", Data(document.utf8)),
             ("word/_rels/document.xml.rels", Data(relsXML.utf8)),
             ("word/styles.xml", Data(styles.utf8)),
-            ("word/numbering.xml", Data(numbering.utf8)),
+            ("word/numbering.xml", Data(numbering(orderedLists: orderedLists).utf8)),
         ]
         for (i, p) in pictures.enumerated() { entries.append(("word/media/image\(i + 1).png", p.png)) }
         return Zip.archive(entries.map { (name: $0.0, data: $0.1) })
@@ -86,8 +91,8 @@ public enum Docx {
             case ">": out += "&gt;"
             case "\"": out += "&quot;"
             default:
-                // XML 1.0 can't carry most control characters.
-                if c.value < 0x20 && c != "\t" { continue }
+                // XML 1.0 can't carry most control characters, nor U+FFFE and U+FFFF.
+                if (c.value < 0x20 && c != "\t") || c.value == 0xFFFE || c.value == 0xFFFF { continue }
                 out.unicodeScalars.append(c)
             }
         }
@@ -96,7 +101,10 @@ public enum Docx {
 
     static func run(_ text: String, style: String? = nil) -> String {
         let rpr = style.map { "<w:rPr><w:rStyle w:val=\"\($0)\"/></w:rPr>" } ?? ""
-        return "<w:r>\(rpr)<w:t xml:space=\"preserve\">\(escape(text))</w:t></w:r>"
+        // A line break inside the text stays a line break, instead of gluing two words together.
+        let parts = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "<w:t xml:space=\"preserve\">\(escape(String($0)))</w:t>" }
+        return "<w:r>\(rpr)\(parts.joined(separator: "<w:br/>"))</w:r>"
     }
 
     static func paragraph(style: String?, runs: String) -> String {
@@ -181,12 +189,20 @@ public enum Docx {
         }.joined()
     }
 
-    static let numbering = """
+    /// Numbering 1 is bullets; 2, 3 and on are the numbered lists, each starting at 1.
+    static func numbering(orderedLists: Int) -> String {
+        let restarts = (0..<max(1, orderedLists)).map { i in
+            "<w:num w:numId=\"\(2 + i)\"><w:abstractNumId w:val=\"1\"/>"
+                + (0...8).map { "<w:lvlOverride w:ilvl=\"\($0)\"><w:startOverride w:val=\"1\"/></w:lvlOverride>" }.joined() + "</w:num>"
+        }.joined()
+        return numberingStart + restarts + "</w:numbering>"
+    }
+
+    static let numberingStart = """
     <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\
     <w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="hybridMultilevel"/>\(levels(bullets: true))</w:abstractNum>\
     <w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="hybridMultilevel"/>\(levels(bullets: false))</w:abstractNum>\
-    <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>\
-    </w:numbering>
+    <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
     """
 }

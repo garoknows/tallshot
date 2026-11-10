@@ -47,20 +47,25 @@ else
 fi
 [ -d "$BUILT" ] || fail "Build finished but the app wasn't found at: $BUILT"
 
+# Check the new build before touching the running or installed copy, so a refused build leaves
+# everything as it was.
+if [ -n "$TEAM" ]; then
+  scripts/verify-signed.sh "$BUILT" || fail "The build isn't signed with your Developer ID. Nothing was installed, and the Tallshot you had is untouched."
+  echo "macOS keeps Tallshot's permissions across rebuilds."
+else
+  echo "Ad hoc signed: macOS will ask for the permissions again after every rebuild (see Config/Signing.xcconfig.example)."
+fi
+
 if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
   echo "Quitting the running copy…"
   pkill -x "$APP_NAME" 2>/dev/null || true
   for _ in $(seq 1 20); do pgrep -x "$APP_NAME" >/dev/null 2>&1 || break; sleep 0.25; done
 fi
 
-if [ -n "$TEAM" ]; then
-  scripts/verify-signed.sh "$BUILT" || fail "The build isn't signed with your Developer ID. Nothing was installed."
-  echo "macOS keeps Tallshot's permissions across rebuilds."
-else
-  echo "Ad hoc signed: macOS will ask for the permissions again after every rebuild (see Config/Signing.xcconfig.example)."
-fi
-
 mkdir -p "$DEST"
+# The plain full path (no trailing slash, no symlinks), as Spotlight reports it, so
+# --remove-other-copies can recognize the copy installed here.
+DEST="$(cd "$DEST" && pwd -P)"
 rm -rf "$DEST/$APP_NAME.app"
 ditto "$BUILT" "$DEST/$APP_NAME.app" || fail "Couldn't copy into $DEST."
 # The build folder's copy would otherwise be a second Tallshot that macOS can find.

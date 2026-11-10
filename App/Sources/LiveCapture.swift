@@ -60,15 +60,6 @@ final class WindowCapturer {
         guard ok else { throw CaptureError.captureFailed }
         return PixelImage(width: width, height: height, pixels: px)
     }
-
-    /// Turns a finished capture back into a CGImage in the screen's color space.
-    static func cgImage(_ img: PixelImage, colorSpace: CGColorSpace) -> CGImage? {
-        let data = img.pixels.withUnsafeBytes { Data($0) }
-        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        return CGImage(width: img.width, height: img.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: img.width * 4,
-                       space: colorSpace, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-    }
 }
 
 /// Posts scroll events built by `ScrollEvents` (private source, no modifier keys, proper phases).

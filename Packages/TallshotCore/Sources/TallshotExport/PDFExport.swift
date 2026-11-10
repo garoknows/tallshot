@@ -28,11 +28,15 @@ public enum PDFExport {
         return PageBreaker.pages(height: image.height, pageHeight: pagePixelHeight(imageWidth: image.width, pageSize: pageSize)) { blank[$0] }
     }
 
+    /// The PDF's title. Always this, never the capture's name: the name can hold a page title or a
+    /// web address, and inside the file it would stay after the file is renamed.
+    public static let documentTitle = "Tallshot capture"
+
     /// The PDF. `lines` are text lines in image pixels (from text recognition), drawn invisibly.
-    public static func make(image: CGImage, pages: [Range<Int>], lines: [TextLine], pageSize: PageSize, title: String) -> Data? {
+    public static func make(image: CGImage, pages: [Range<Int>], lines: [TextLine], pageSize: PageSize) -> Data? {
         let data = NSMutableData()
         var box = CGRect(origin: .zero, size: pageSize.size)
-        let info = [kCGPDFContextCreator as String: "Tallshot", kCGPDFContextTitle as String: title] as CFDictionary
+        let info = [kCGPDFContextCreator as String: "Tallshot", kCGPDFContextTitle as String: documentTitle] as CFDictionary
         guard let consumer = CGDataConsumer(data: data), let ctx = CGContext(consumer: consumer, mediaBox: &box, info) else { return nil }
         let scale = (box.width - 2 * margin) / CGFloat(image.width)
         for range in pages {
