@@ -42,7 +42,7 @@ Each step turns green by itself. Then click **Run Self-Test**: Tallshot captures
 - The top line of the menu shows which version you have (also at the bottom of Settings). **Release Notes…** opens the releases page in your browser.
 - Esc, a click, a key or moving the mouse stops it and keeps what was captured.
 - Settings (menu → Settings…):
-  - **General:** the hotkeys, including an optional one for Capture as Image (with a warning under the field only when macOS refuses the keys or uses them for its own shortcut), and a **Test Hotkey** button that confirms a hotkey reaches Tallshot; When an app shares its text (Copy the text, no scrolling, or Always take a scrolling screenshot); Capture (pane under the pointer, or the whole window); Open at login.
+  - **General:** the hotkeys, including an optional one for Capture as Image (with a warning under the field only when macOS refuses the keys or uses them for its own shortcut), and a **Test Hotkey** button that confirms a hotkey reaches Tallshot. Every hotkey row has **Clear** (the menu works without hotkeys), the main Capture hotkey also has **Reset to Default**, and keys another row already uses aren't saved; When an app shares its text (Copy the text, no scrolling, or Always take a scrolling screenshot); Capture (pane under the pointer, or the whole window); Open at login.
   - **Output:** the save folder; File names (app, title and date, or the date only); Also save as PNG, PDF, Word (.docx), Markdown (.md); Copy as image or text; PDF page size; the preview pop-up; the shutter sound.
   - **Capture:** scroll speed, the height and time limits (a very wide capture also stops at 50 million pixels in all), and the optional diagnostic report and where it goes.
 

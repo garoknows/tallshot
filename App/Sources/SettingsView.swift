@@ -48,15 +48,15 @@ struct SettingsView: View {
     var general: some View {
         VStack(alignment: .leading, spacing: 12) {
             row("Capture hotkey") {
-                HotkeyRecorder(hotkey: $settings.captureHotkey, allowNone: false) { old in model.hotkeyChanged(slot: 1, previous: old) }
+                HotkeyRecorder(hotkey: $settings.captureHotkey, slot: 1, defaultHotkey: .defaultCapture, model: model)
             }
             warning(1)
             row("Capture from top") {
-                HotkeyRecorder(hotkey: $settings.fromTopHotkey, allowNone: true) { old in model.hotkeyChanged(slot: 2, previous: old) }
+                HotkeyRecorder(hotkey: $settings.fromTopHotkey, slot: 2, model: model)
             }
             warning(2)
             row("Capture as image") {
-                HotkeyRecorder(hotkey: $settings.imageHotkey, allowNone: true) { old in model.hotkeyChanged(slot: 3, previous: old) }
+                HotkeyRecorder(hotkey: $settings.imageHotkey, slot: 3, model: model)
             }
             warning(3)
             hint("Always takes a scrolling screenshot, even when the app shares its text. Also in the menu.")
@@ -225,24 +225,50 @@ struct SettingsView: View {
 /// Click, then press a key combo. Esc cancels; Delete clears (when allowed).
 struct HotkeyRecorder: View {
     @Binding var hotkey: Hotkey?
-    var allowNone: Bool
-    /// Called after a change, with the hotkey it replaced.
-    var onChange: (Hotkey?) -> Void
+    /// 1 Capture, 2 Capture from Top, 3 Capture as Image.
+    var slot: UInt32
+    /// The row's default (only the main Capture hotkey has one).
+    var defaultHotkey: Hotkey? = nil
+    @ObservedObject var model: AppModel
     @State private var recording = false
     @State private var monitor: Any?
 
+    var field: HotkeyField {
+        HotkeyField.state(display: hotkey?.display, recording: recording, hasDefault: defaultHotkey != nil,
+                          isDefault: hotkey != nil && hotkey == defaultHotkey)
+    }
+
     var body: some View {
+        let f = field
         HStack(spacing: 6) {
             Button(action: toggle) {
-                Text(recording ? "Press keys…" : (hotkey?.display ?? "None"))
+                Text(f.title)
                     .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(hotkey == nil && !recording ? .secondary : .primary)
                     .frame(minWidth: 110)
             }
-            if allowNone && hotkey != nil && !recording {
-                Button("Clear") { let old = hotkey; hotkey = nil; onChange(old) }.buttonStyle(.link)
+            // Hidden buttons keep their space, so the rows line up and nothing shifts.
+            Button("Clear") { set(nil) }
+                .buttonStyle(.link)
+                .opacity(f.showsClear ? 1 : 0).disabled(!f.showsClear).accessibilityHidden(!f.showsClear)
+            if let showsReset = f.showsReset, let d = defaultHotkey {
+                Button("Reset to Default") { set(d) }
+                    .buttonStyle(.link)
+                    .opacity(showsReset ? 1 : 0).disabled(!showsReset).accessibilityHidden(!showsReset)
             }
         }
         .onDisappear(perform: stop)
+    }
+
+    /// Saves new keys, unless another row already has them: then it says so and keeps the old ones.
+    func set(_ new: Hotkey?) {
+        if let new, let other = model.slotUsing(new, except: slot) {
+            model.hotkeyWarnings[slot] = "\(new.display) is already the \(AppModel.hotkeyName(other)) hotkey, so it wasn't saved. Pick a different one."
+            return
+        }
+        let old = hotkey
+        hotkey = new
+        model.hotkeyChanged(slot: slot, previous: old)
     }
 
     func toggle() { recording ? stop() : start() }
@@ -254,9 +280,9 @@ struct HotkeyRecorder: View {
         HotKeys.shared.set(2, nil, action: {})
         HotKeys.shared.set(3, nil, action: {})
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
-            if e.keyCode == 53 { stop(); return nil }                         // Esc
-            if e.keyCode == 51 && allowNone { let old = hotkey; hotkey = nil; onChange(old); stop(); return nil }   // Delete
-            if let h = Hotkey(event: e) { let old = hotkey; hotkey = h; onChange(old); stop() }
+            if e.keyCode == 53 { stop(); return nil }                     // Esc: keep what was there
+            if e.keyCode == 51 { stop(); set(nil); return nil }           // Delete: clear
+            if let h = Hotkey(event: e) { stop(); set(h) }
             return nil
         }
     }

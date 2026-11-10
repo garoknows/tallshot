@@ -398,3 +398,33 @@ struct WindowChoiceTests {
     }
 }
 
+
+@Suite("Settings: the three hotkey rows behave alike")
+struct HotkeyRowTests {
+    @Test func everyRowShowsClearWhenSetAndClickToRecordWhenEmpty() {
+        for hasDefault in [true, false] {
+            let set = HotkeyField.state(display: "⌃⌥⇧⌘X", recording: false, hasDefault: hasDefault, isDefault: false)
+            #expect(set.title == "⌃⌥⇧⌘X" && set.showsClear)
+            let empty = HotkeyField.state(display: nil, recording: false, hasDefault: hasDefault, isDefault: false)
+            #expect(empty.title == "Click to record" && !empty.showsClear)
+            let recording = HotkeyField.state(display: "⌃⌥⇧⌘X", recording: true, hasDefault: hasDefault, isDefault: false)
+            #expect(recording.title == "Press keys…" && !recording.showsClear)
+        }
+    }
+
+    @Test func onlyTheMainRowOffersResetAndOnlyWhenChanged() {
+        #expect(HotkeyField.state(display: "⌃⌥⇧⌘X", recording: false, hasDefault: true, isDefault: false).showsReset == true)
+        #expect(HotkeyField.state(display: "⌃⌥⇧⌘T", recording: false, hasDefault: true, isDefault: true).showsReset == false)
+        #expect(HotkeyField.state(display: nil, recording: false, hasDefault: true, isDefault: false).showsReset == true, "cleared: reset brings it back")
+        #expect(HotkeyField.state(display: "⌃⌥⇧⌘P", recording: false, hasDefault: false, isDefault: false).showsReset == nil)
+    }
+
+    @Test func keysAnotherRowUsesAreFound() {
+        let x = HotkeyConflicts.Keys(keyCode: 7, modifiers: HotkeyConflicts.hyper)
+        let p = HotkeyConflicts.Keys(keyCode: 35, modifiers: HotkeyConflicts.hyper)
+        let all: [UInt32: HotkeyConflicts.Keys] = [1: x, 2: p]
+        #expect(HotkeyConflicts.slot(using: p, except: 3, in: all) == 2)
+        #expect(HotkeyConflicts.slot(using: x, except: 1, in: all) == nil, "a row's own keys are no clash")
+        #expect(HotkeyConflicts.slot(using: HotkeyConflicts.Keys(keyCode: 17, modifiers: HotkeyConflicts.hyper), except: 3, in: all) == nil)
+    }
+}
