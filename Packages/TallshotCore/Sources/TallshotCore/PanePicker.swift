@@ -192,3 +192,32 @@ public struct HotkeyTest: Equatable, Sendable {
         }
     }
 }
+
+/// How one hotkey row in Settings looks. Every row works the same way: it shows the keys, or
+/// "Click to record" when there are none; Clear when keys are set; and, for a row with a default
+/// (the main Capture hotkey), Reset to Default when the keys differ from it. Hidden buttons keep
+/// their space, so the layout never shifts.
+public struct HotkeyField: Equatable, Sendable {
+    public static let placeholder = "Click to record"
+    public static let recordingTitle = "Press keys…"
+
+    public var title: String
+    public var showsClear: Bool
+    /// nil when the row has no default.
+    public var showsReset: Bool?
+
+    /// `display`: the keys, or nil for none. `hasDefault`: the row has a default hotkey;
+    /// `isDefault`: its keys are that default.
+    public static func state(display: String?, recording: Bool, hasDefault: Bool, isDefault: Bool) -> HotkeyField {
+        HotkeyField(title: recording ? recordingTitle : (display ?? placeholder),
+                    showsClear: display != nil && !recording,
+                    showsReset: hasDefault ? (!isDefault && !recording) : nil)
+    }
+}
+
+extension HotkeyConflicts {
+    /// Another slot that already has `keys` (the lowest numbered one), ignoring `slot` itself.
+    public static func slot(using keys: Keys, except slot: UInt32, in all: [UInt32: Keys]) -> UInt32? {
+        all.filter { $0.key != slot && $0.value == keys }.keys.min()
+    }
+}
