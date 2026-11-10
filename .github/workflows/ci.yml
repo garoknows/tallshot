@@ -69,6 +69,9 @@ jobs:
       - name: Privacy checks (no entitlements, no network, no temp files, no third-party code)
         run: scripts/check-privacy.sh build.nosync/dd/Build/Products/Release/Tallshot.app
 
+      - name: Pointer and text-capture rules
+        run: scripts/check-capture-rules.sh
+
       - name: The menu shows the build's version
         run: scripts/test-version.sh build.nosync/dd/Build/Products/Release/Tallshot.app
 

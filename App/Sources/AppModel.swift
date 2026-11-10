@@ -82,9 +82,9 @@ final class AppModel: ObservableObject {
     @discardableResult
     func registerHotkeys() -> [UInt32: Bool] {
         var ok: [UInt32: Bool] = [:]
-        ok[1] = HotKeys.shared.set(1, settings.captureHotkey, action: { [weak self] in self?.capture(fromTop: false) })
-        ok[2] = HotKeys.shared.set(2, settings.fromTopHotkey, action: { [weak self] in self?.capture(fromTop: true) })
-        ok[3] = HotKeys.shared.set(3, settings.imageHotkey, action: { [weak self] in self?.capture(fromTop: false, asImage: true) })
+        ok[1] = HotKeys.shared.set(1, settings.captureHotkey, action: { [weak self] in self?.hotkeyPressed(1) })
+        ok[2] = HotKeys.shared.set(2, settings.fromTopHotkey, action: { [weak self] in self?.hotkeyPressed(2) })
+        ok[3] = HotKeys.shared.set(3, settings.imageHotkey, action: { [weak self] in self?.hotkeyPressed(3) })
         let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         var warnings: [UInt32: String] = [:]
         for (slot, key) in [(UInt32(1), settings.captureHotkey), (2, settings.fromTopHotkey), (3, settings.imageHotkey)] {
@@ -119,6 +119,27 @@ final class AppModel: ObservableObject {
         registerHotkeys()
         let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         hotkeyWarnings[slot] = HotkeyConflicts.refusedMessage(display: refused, running: running)
+    }
+
+    /// Settings → Test Hotkey.
+    @Published private(set) var hotkeyTest = HotkeyTest()
+
+    func startHotkeyTest() {
+        hotkeyTest.start(now: ProcessInfo.processInfo.systemUptime)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(HotkeyTest.timeout + 0.2))
+            self?.hotkeyTest.tick(now: ProcessInfo.processInfo.systemUptime)
+        }
+    }
+
+    /// A registered hotkey fired: the test takes it if it's waiting, else it captures.
+    private func hotkeyPressed(_ slot: UInt32) {
+        if hotkeyTest.pressed(slot: slot, now: ProcessInfo.processInfo.systemUptime) { return }
+        switch slot {
+        case 1: capture(fromTop: false)
+        case 2: capture(fromTop: true)
+        default: capture(fromTop: false, asImage: true)
+        }
     }
 
     static func hotkeyName(_ slot: UInt32) -> String {
@@ -188,7 +209,9 @@ final class AppModel: ObservableObject {
                 await deliverText(doc, target: target, baseName: baseName)
                 return
             }
-            if let why = Self.whyNotText(shared.verdict) { mode = "Scrolling screenshot: \(why)" }
+            // Say why, except "no text area" in apps that aren't expected to have one.
+            let expected = target.bundleID.map(PlainTextDocument.monospacedApps.contains) ?? false
+            if shared.verdict != .notText || expected, let why = Self.whyNotText(shared.verdict) { mode = "Scrolling screenshot: \(why)" }
         }
         do {
             // Wait for the keys of the hotkey that was actually pressed.
@@ -229,7 +252,7 @@ final class AppModel: ObservableObject {
         if target.isBrowserLike { options.cautiousStartFraction = 0.3 }
         let capturer = try await WindowCapturer(target: target)
         let driver = LiveDriver(target: target, capturer: capturer)
-        if collectText, let root = target.textRoot { driver.collector = TextCollector(root: root, region: target.region) }
+        if collectText, let root = target.textRoot { driver.collector = TextCollector(root: root, region: target.region, bundleID: target.bundleID) }
         driver.begin()
         defer { driver.end() }
         try await Task.sleep(for: .milliseconds(560))   // the flash, then let it fade before the first picture
@@ -254,7 +277,10 @@ final class AppModel: ObservableObject {
     /// Why a pane with a text area was screenshotted instead, for the pop-up (nil: nothing to say).
     static func whyNotText(_ v: SharedTextCheck.Verdict) -> String? {
         switch v {
-        case .complete, .notText, .empty, .doesntFillPane: nil
+        case .complete: nil
+        case .notText: "no text area here (the app doesn't share this pane as text)."
+        case .empty: "the app shared no text."
+        case .doesntFillPane: "the text area the app shared doesn't fill the pane."
         case .inWebPage: "this app shares only the text on screen."
         case .truncated: "the app's text was cut short."
         case .cantTell: "the app didn't show its text was complete."

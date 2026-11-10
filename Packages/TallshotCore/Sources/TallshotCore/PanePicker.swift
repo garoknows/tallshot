@@ -138,43 +138,57 @@ public enum HotkeyConflicts {
     public static let keyC: UInt32 = 8, keyV: UInt32 = 9, keyF: UInt32 = 3, keyX: UInt32 = 7, keySpace: UInt32 = 49
     public static let key3: UInt32 = 20, key4: UInt32 = 21, key5: UInt32 = 23, key6: UInt32 = 22
 
-    struct Known {
-        var app: String
-        var bundleID: String?
-        var keyCode: UInt32
-        var modifiers: UInt32
-    }
-
-    /// Shortcuts other apps commonly use. Raycast setups often put clipboard, window and other
-    /// commands on Control+Option+Shift+Command (the "Hyper" key) with C, V, F and X.
-    static let known: [Known] = [
-        Known(app: "macOS (screenshots)", bundleID: nil, keyCode: key3, modifiers: cmd | shift),
-        Known(app: "macOS (screenshots)", bundleID: nil, keyCode: key4, modifiers: cmd | shift),
-        Known(app: "macOS (screenshots)", bundleID: nil, keyCode: key5, modifiers: cmd | shift),
-        Known(app: "macOS (screenshots)", bundleID: nil, keyCode: key6, modifiers: cmd | shift),
-        Known(app: "Spotlight", bundleID: nil, keyCode: keySpace, modifiers: cmd),
-        Known(app: "Raycast", bundleID: "com.raycast.macos", keyCode: keySpace, modifiers: option),
-        Known(app: "Raycast", bundleID: "com.raycast.macos", keyCode: keyC, modifiers: hyper),
-        Known(app: "Raycast", bundleID: "com.raycast.macos", keyCode: keyV, modifiers: hyper),
-        Known(app: "Raycast", bundleID: "com.raycast.macos", keyCode: keyF, modifiers: hyper),
-        Known(app: "Raycast", bundleID: "com.raycast.macos", keyCode: keyX, modifiers: hyper),
-        Known(app: "Alfred", bundleID: "com.runningwithcrayons.Alfred", keyCode: keySpace, modifiers: option),
-        Known(app: "1Password", bundleID: "com.1password.1password", keyCode: keySpace, modifiers: cmd | shift),
-    ]
-
-    /// A warning for a hotkey, or nil. `registered` is whether macOS accepted it; `systemTaken`
-    /// whether it matches an enabled macOS keyboard shortcut; `running` the apps now open.
     public static func warning(keyCode: UInt32, modifiers: UInt32, registered: Bool, systemTaken: Bool,
                                running: Set<String>) -> String? {
+        // Only with evidence of a clash: macOS refused the hotkey, or macOS's own keyboard
+        // shortcut settings use the same keys. Guessing from which apps are running gave false
+        // warnings (Raycast was named for keys it didn't use).
         if !registered { return refusedMessage(running: running) }
         if systemTaken { return "macOS already uses this for a keyboard shortcut (System Settings → Keyboard → Keyboard Shortcuts), so it may not reach Tallshot." }
-        for k in known where k.keyCode == keyCode && k.modifiers == modifiers {
-            if let id = k.bundleID {
-                if running.contains(id) { return "\(k.app) is running and may use this hotkey, so it may not reach Tallshot." }
-            } else {
-                return "\(k.app) uses this hotkey, so it may not reach Tallshot."
-            }
-        }
         return nil
+    }
+}
+
+/// Settings → Test Hotkey: waits for the user to press one of Tallshot's hotkeys, and says whether
+/// it reached Tallshot. While it waits, a press is only recorded, nothing is captured.
+public struct HotkeyTest: Equatable, Sendable {
+    public enum State: Equatable, Sendable {
+        case idle
+        case waiting(since: Double)
+        /// The hotkey in this slot (1 capture, 2 from top, 3 as image) reached Tallshot.
+        case received(slot: UInt32)
+        case timedOut
+    }
+
+    public static let timeout = 10.0
+    public private(set) var state: State = .idle
+    public init() {}
+
+    public var isWaiting: Bool { if case .waiting = state { return true } else { return false } }
+
+    public mutating func start(now: Double) { state = .waiting(since: now) }
+
+    /// A hotkey was pressed. Returns true if the test took it (so no capture should start).
+    public mutating func pressed(slot: UInt32, now: Double) -> Bool {
+        guard case .waiting(let since) = state else { return false }
+        guard now - since <= Self.timeout else { state = .timedOut; return false }
+        state = .received(slot: slot)
+        return true
+    }
+
+    public mutating func tick(now: Double) {
+        if case .waiting(let since) = state, now - since > Self.timeout { state = .timedOut }
+    }
+
+    public mutating func cancel() { state = .idle }
+
+    /// What Settings shows. `display` names a slot's keys.
+    public func message(display: (UInt32) -> String?) -> String? {
+        switch state {
+        case .idle: nil
+        case .waiting: "Press one of Tallshot's hotkeys now…"
+        case .received(let slot): "\(display(slot) ?? "The hotkey") reached Tallshot. It works."
+        case .timedOut: "No Tallshot hotkey arrived within \(Int(Self.timeout)) seconds. Another app may be taking it, or it isn't set."
+        }
     }
 }

@@ -17,7 +17,8 @@ enum SharedTextReader {
         // Tallshot's own windows: it would be asking itself, on the thread that must answer.
         guard target.pid != ProcessInfo.processInfo.processIdentifier else { return Result(verdict: .notText) }
         if target.kind == .webArea || target.kind == .webElement || target.isBrowserLike { return Result(verdict: .inWebPage) }
-        guard let (element, insideWeb) = textArea(for: target) else { return Result(verdict: .notText) }
+        guard let found = textArea(for: target) else { return Result(verdict: .notText) }
+        let element = found.element
         AXUIElementSetMessagingTimeout(element, 2.0)   // a long terminal history can take a moment
         let text: String = TargetFinder.attribute(element, kAXValueAttribute) ?? ""
         let count = (TargetFinder.attribute(element, kAXNumberOfCharactersAttribute) as NSNumber?)?.intValue
@@ -26,8 +27,10 @@ enum SharedTextReader {
             var r = CFRange()
             if AXValueGetValue(v, .cfRange, &r), r.location >= 0, r.length >= 0 { visible = r.location..<(r.location + r.length) }
         }
-        let facts = SharedTextFacts(role: "AXTextArea", insideWebPage: insideWeb, text: text, characterCount: count,
-                                    visibleRange: visible, frame: TargetFinder.frame(element) ?? .zero, region: target.region)
+        // Read only: nothing here scrolls, moves the pointer or changes the app.
+        let facts = SharedTextFacts(role: "AXTextArea", insideWebPage: insideWebPage(element), text: text, characterCount: count,
+                                    visibleRange: visible, frame: TargetFinder.frame(element) ?? .zero, region: target.region,
+                                    underPaneCenter: found.underCenter)
         let verdict = SharedTextCheck.verdict(facts)
         guard verdict.isComplete else { return Result(verdict: verdict) }
         let preformatted = PlainTextDocument.isPreformatted(bundleID: target.bundleID, text: text)
@@ -35,33 +38,42 @@ enum SharedTextReader {
     }
 
     /// The text area for the pane: the element under the middle of the pane or one of its
-    /// parents, else the biggest one just inside the pane's element. Also says whether it is
-    /// inside a web page.
-    private static func textArea(for target: CaptureTarget) -> (AXUIElement, Bool)? {
+    /// parents; else the one overlapping the pane most, a few levels below that element, the
+    /// pane's element or the app's focused window.
+    private static func textArea(for target: CaptureTarget) -> (element: AXUIElement, underCenter: Bool)? {
         let role = kAXTextAreaRole as String
-        var found: AXUIElement?
-        let system = AXUIElementCreateSystemWide()
+        func isTextArea(_ el: AXUIElement) -> Bool {
+            AXUIElementSetMessagingTimeout(el, 0.5)
+            return TargetFinder.string(el, kAXRoleAttribute) == role
+        }
         var hit: AXUIElement?
-        if AXUIElementCopyElementAtPosition(system, Float(target.center.x), Float(target.center.y), &hit) == .success, var el = hit {
+        var starts: [AXUIElement] = []
+        if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(target.center.x), Float(target.center.y), &hit) == .success,
+           var el = hit {
             var pid: pid_t = 0
             AXUIElementGetPid(el, &pid)
             if pid == target.pid {
+                starts.append(el)
                 for _ in 0..<8 {
-                    AXUIElementSetMessagingTimeout(el, 0.5)
-                    if TargetFinder.string(el, kAXRoleAttribute) == role { found = el; break }
+                    if isTextArea(el) { return (el, true) }
                     guard let parent: AXUIElement = TargetFinder.attribute(el, kAXParentAttribute) else { break }
                     el = parent
                 }
             }
         }
-        if found == nil, let root = target.textRoot {
-            // A few levels down from the pane (a scroll area holds its text view directly).
-            var level = [root], best: (AXUIElement, CGFloat)?
-            for _ in 0..<3 {
+        if let root = target.textRoot { starts.append(root) }
+        let app = AXUIElementCreateApplication(target.pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        if let window: AXUIElement = TargetFinder.attribute(app, kAXFocusedWindowAttribute) { starts.append(window) }
+        var best: (AXUIElement, CGFloat)?
+        var visited = 0
+        for start in starts {
+            var level = [start]
+            for _ in 0..<5 where visited < 400 {
                 var next: [AXUIElement] = []
-                for el in level.prefix(60) {
-                    AXUIElementSetMessagingTimeout(el, 0.5)
-                    if TargetFinder.string(el, kAXRoleAttribute) == role, let f = TargetFinder.frame(el) {
+                for el in level.prefix(80) {
+                    visited += 1
+                    if isTextArea(el), let f = TargetFinder.frame(el) {
                         let o = f.intersection(target.region)
                         let area = o.isNull ? 0 : o.width * o.height
                         if area > (best?.1 ?? 0) { best = (el, area) }
@@ -70,10 +82,8 @@ enum SharedTextReader {
                 }
                 level = next
             }
-            found = best?.0
         }
-        guard let area = found else { return nil }
-        return (area, insideWebPage(area))
+        return best.map { ($0.0, false) }
     }
 
     private static func insideWebPage(_ element: AXUIElement) -> Bool {

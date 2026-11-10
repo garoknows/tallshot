@@ -131,7 +131,7 @@ struct PointerParkingTests {
     }
 
     func parking(_ m: Mouse) -> PointerParking {
-        PointerParking(move: { m.at = $0; m.moves.append($0) }, location: { m.at })
+        PointerParking(jump: { m.at = $0; m.moves.append($0) }, move: { m.at = $0; m.moves.append($0) }, location: { m.at })
     }
 
     func capture(_ driver: CaptureDriver, _ parking: PointerParking, userMoved: Bool = false) async throws -> CaptureResult {
@@ -292,5 +292,166 @@ struct HotkeyClashTests {
         #expect(!HotkeyConflicts.refusedMessage(running: ["com.apple.finder"]).contains("likely"))
         #expect(HotkeyConflicts.warning(keyCode: 7, modifiers: HotkeyConflicts.hyper, registered: false, systemTaken: false,
                                         running: ["cc.ffitch.shottr"])?.contains("Shottr") ?? false)
+    }
+}
+
+
+/// Records, in one timeline, every picture, scroll and pointer move of a capture.
+@MainActor
+final class TimelineWindow: CaptureDriver {
+    let window: SimulatedWindow
+    var log: [String] = []
+    init(_ window: SimulatedWindow) { self.window = window }
+    func captureFrame() async throws -> PixelImage { log.append("frame"); return try await window.captureFrame() }
+    func scroll(pixels: Int) async throws { log.append("scroll"); try await window.scroll(pixels: pixels) }
+    func pause(milliseconds: Int) async { await window.pause(milliseconds: milliseconds) }
+    var isCancelled: Bool { window.isCancelled }
+    var now: Double { window.now }
+    func reverseScrollDirection() { window.reverseScrollDirection() }
+    func setScrollMethod(_ method: ScrollMethod) -> Bool { window.setScrollMethod(method) }
+    func contentSettled() { window.contentSettled() }
+}
+
+@Suite("No real mouse event while pictures are taken", .serialized)
+@MainActor
+struct PointerTimelineTests {
+    /// The rule that 1.1.0 and 1.1.1 broke: between the first and the last picture, the pointer
+    /// may only jump silently. A real "mouse moved" makes the app under it react (hover, a scroll
+    /// bar appearing and fading) while frames are compared, and the self-test failed with "the page
+    /// jumped or changed". The one real move comes after the last picture.
+    func timeline(_ w: SimulatedWindow, options: CaptureOptions = CaptureOptions()) async throws -> (CaptureResult, [String]) {
+        let d = TimelineWindow(w)
+        var at = CGPoint(x: 5, y: 5)
+        let p = PointerParking(jump: { at = $0; d.log.append("jump") }, move: { at = $0; d.log.append("move") }, location: { at })
+        let r = try await p.whileParked(at: CGPoint(x: 300, y: 300), userMoved: { false }) {
+            try await CaptureSession(driver: d, options: options).run()
+        }
+        return (r, d.log)
+    }
+
+    func check(_ log: [String]) {
+        let lastFrame = log.lastIndex(of: "frame") ?? -1
+        let firstFrame = log.firstIndex(of: "frame") ?? Int.max
+        #expect(!log.prefix(lastFrame + 1).contains("move"), "a real mouse move happened before the last picture: \(log.prefix(12))")
+        #expect(log.filter { $0 == "move" }.count == 1 && log.last == "move", "exactly one real move, after the last picture")
+        #expect((log.firstIndex(of: "jump") ?? Int.max) < firstFrame, "parked (silently) before the first picture")
+    }
+
+    @Test func aFinishedCapture() async throws {
+        let (r, log) = try await timeline(SimulatedWindow(pageHeight: 2_400))
+        #expect(r.reason == .bottom)
+        check(log)
+    }
+
+    @Test func anEarlyStop() async throws {
+        var o = CaptureOptions(); o.maxHeight = 900
+        let (r, log) = try await timeline(SimulatedWindow(pageHeight: 5_000), options: o)
+        #expect(r.reason == .heightCap)
+        check(log)
+    }
+
+    @Test func esc() async throws {
+        let w = SimulatedWindow(pageHeight: 3_000)
+        w.cancelAfterCaptures = 3
+        let (r, log) = try await timeline(w)
+        #expect(r.reason == .cancelled)
+        check(log)
+    }
+}
+
+@Suite("1.1.2: proving the text is complete without moving anything")
+struct CompletenessWithoutScrollingTests {
+    let pane = CGRect(x: 0, y: 0, width: 900, height: 700)
+
+    func ghostty(_ text: String, visible: Range<Int>?, count: Int?, frame: CGRect? = nil, underCenter: Bool = true) -> SharedTextFacts {
+        SharedTextFacts(role: "AXTextArea", insideWebPage: false, text: text, characterCount: count, visibleRange: visible,
+                        frame: frame ?? pane, region: pane, underPaneCenter: underCenter)
+    }
+
+    @Test func aLongHistoryIsCompleteEvenIfTheAppSaysAllOfItIsVisible() {
+        // 1.1.1 trusted the visible range over the line count, said "can't tell", and scrolled.
+        let t = (1...9_585).map { "line \($0)" }.joined(separator: "\n")
+        #expect(SharedTextCheck.verdict(ghostty(t, visible: 0..<t.utf16.count, count: t.utf16.count)) == .complete)
+    }
+
+    @Test func countsInOtherUnitsAreNotCutShort() {
+        let t = String(repeating: "🙂 café\n", count: 200)
+        // The app counts letters (Characters), fewer than UTF-16 units: the text isn't cut short.
+        #expect(SharedTextCheck.verdict(ghostty(t, visible: nil, count: t.count)) == .complete)
+        #expect(SharedTextCheck.verdict(ghostty(t, visible: nil, count: t.unicodeScalars.count)) == .complete)
+        // More than any count of what it gave: cut short.
+        #expect(SharedTextCheck.verdict(ghostty(t, visible: nil, count: t.utf16.count + 50)) == .truncated)
+    }
+
+    @Test func aTextAreaWithNoFrameCountsOnlyUnderThePaneCenter() {
+        let t = (1...500).map(String.init).joined(separator: "\n")
+        #expect(SharedTextCheck.verdict(ghostty(t, visible: nil, count: nil, frame: .zero, underCenter: true)) == .complete)
+        #expect(SharedTextCheck.verdict(ghostty(t, visible: nil, count: nil, frame: .zero, underCenter: false)) == .doesntFillPane)
+    }
+
+    @Test func aShortScreenfulIsStillNotTrusted() {
+        let t = (1...30).map(String.init).joined(separator: "\n")
+        #expect(SharedTextCheck.verdict(ghostty(t, visible: 0..<t.utf16.count, count: nil)) == .cantTell)
+    }
+}
+
+@Suite("1.1.2: text capture formatting")
+struct TextFormattingTests {
+    @Test func terminalTextIsOneExactCodeBlockWithSingleLineBreaks() {
+        let shell = "$ git log --oneline   \n**bold** and `ticks` and _under_ [x](y)\n\n  indented\t\nend"
+        let doc = PlainTextDocument.document(from: shell, preformatted: true)
+        let md = Markdown.render(doc)
+        let body = "$ git log --oneline\n**bold** and `ticks` and _under_ [x](y)\n\n  indented\nend"
+        #expect(md.contains("```\n" + body + "\n```"), "exactly as the app gave it, trailing spaces trimmed:\n\(md)")
+        #expect(!md.contains("\\*") && !md.contains("\\`") && !md.contains("\\_"), "no Markdown escapes inside code")
+        // Single line breaks: no line is followed by an extra blank line.
+        let lines = md.components(separatedBy: "```")[1].split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(lines.filter(\.isEmpty).count == 3, "only the one blank line the terminal had, plus the fence edges")
+    }
+
+    @Test func documentTextHasNoBlankLineAfterEveryLine() {
+        let note = "Trip plan\nFlight at 9\nHotel booked\n\nPacking\n• Passport\n• Charger"
+        let md = Markdown.render(PlainTextDocument.document(from: note, preformatted: false))
+        #expect(md.contains("Trip plan  \nFlight at 9  \nHotel booked\n\nPacking\n\n- Passport\n- Charger"), "\(md)")
+        let words = md.split(separator: "\n", omittingEmptySubsequences: false)
+        // One after the "Text from..." note, then only between paragraphs and before the list.
+        #expect(words.filter(\.isEmpty).count == 4, "blank lines only between paragraphs: \(md)")
+    }
+
+    @Test func eachLineIsEscapedOnItsOwn() {
+        let md = Markdown.render(PlainTextDocument.document(from: "Intro\n# not a heading\n2024. not a list", preformatted: false))
+        #expect(md.contains("Intro  \n\\# not a heading  \n2024\\. not a list"), "\(md)")
+    }
+}
+
+@Suite("1.1.2: Test Hotkey")
+struct HotkeyTestTests {
+    @Test func aPressWhileWaitingIsConfirmedAndCapturesNothing() {
+        var t = HotkeyTest()
+        let early = t.pressed(slot: 1, now: 0)
+        #expect(!early, "not waiting: the press is a normal capture")
+        t.start(now: 100)
+        #expect(t.message(display: { _ in nil }) == "Press one of Tallshot's hotkeys now…")
+        let taken = t.pressed(slot: 1, now: 103)
+        #expect(taken, "taken by the test")
+        #expect(t.state == .received(slot: 1))
+        #expect(t.message(display: { $0 == 1 ? "⌃⌥⇧⌘X" : nil }) == "⌃⌥⇧⌘X reached Tallshot. It works.")
+        let after = t.pressed(slot: 1, now: 104)
+        #expect(!after, "after the answer, presses capture again")
+    }
+
+    @Test func noPressTimesOut() {
+        var t = HotkeyTest()
+        t.start(now: 0)
+        t.tick(now: 5)
+        #expect(t.isWaiting)
+        t.tick(now: 10.5)
+        #expect(t.state == .timedOut)
+        #expect(t.message(display: { _ in nil })?.contains("Another app may be taking it") == true)
+        var late = HotkeyTest()
+        late.start(now: 0)
+        let tooLate = late.pressed(slot: 2, now: 11)
+        #expect(!tooLate, "too late: not counted")
+        #expect(late.state == .timedOut)
     }
 }

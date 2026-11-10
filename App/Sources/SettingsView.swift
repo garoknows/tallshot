@@ -60,6 +60,14 @@ struct SettingsView: View {
             }
             warning(3)
             hint("Always takes a scrolling screenshot, even when the app shares its text. Also in the menu.")
+            row("") {
+                HStack {
+                    Button("Test Hotkey") { model.startHotkeyTest() }.disabled(model.hotkeyTest.isWaiting)
+                    if let m = model.hotkeyTest.message(display: { settings.hotkey(slot: $0)?.display }) {
+                        Text(m).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
             Divider()
             row("When an app shares its text") {
                 Picker("", selection: $settings.textCapture) {

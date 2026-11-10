@@ -82,7 +82,9 @@ public enum Markdown {
 
     static func inline(_ spans: [Inline]) -> String {
         spans.map { s in
-            let t = escape(s.text)
+            // A line break inside a paragraph stays a line break (Markdown's two-space hard break),
+            // each line escaped on its own.
+            let t = s.text.split(separator: "\n", omittingEmptySubsequences: false).map { escape(String($0)) }.joined(separator: "  \n")
             guard let link = s.link.flatMap(safeLink) else { return t }
             return "[\(t)](\(link))"
         }.joined()
