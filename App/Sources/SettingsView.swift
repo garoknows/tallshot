@@ -27,6 +27,7 @@ struct SettingsView: View {
                 }
             }
             .padding(20)
+            Text(AppVersion.title(info: Bundle.main.infoDictionary)).font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
         }
         .frame(width: 520)
     }

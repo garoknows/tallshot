@@ -12,7 +12,7 @@
 #        ARCHS              (default "arm64 x86_64")
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:-1.1.0}"
+VERSION="${1:-1.1.1}"
 B="${TALLSHOT_BUILD_DIR:-$HOME/Library/Caches/Tallshot-build}/direct-app"
 # Never quietly fall back to ad hoc when signing is set up: that's a new identity to macOS.
 IDENTITY="${SIGN_IDENTITY:-$("$ROOT/scripts/signing-identity.sh")}"
@@ -46,7 +46,7 @@ LIPO="$TC/usr/bin/lipo"; [ -x "$LIPO" ] || LIPO=lipo
 "$LIPO" -create "${BINS[@]}" -output "$APP/Contents/MacOS/Tallshot"
 cp "$ROOT/App/Info.plist" "$APP/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
-plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-3}" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-4}" "$APP/Contents/Info.plist"
 # The Icon Composer file gives light, dark, tinted and clear versions. Without a tool that can
 # compile it, the plain .icns is the fallback.
 if ! DEVELOPER_DIR="$DEV" xcrun actool "$ROOT/App/Resources/AppIcon.icon" --compile "$APP/Contents/Resources" \

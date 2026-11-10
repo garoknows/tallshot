@@ -178,3 +178,36 @@ public final class PointerParking {
         return try await body()
     }
 }
+
+/// After every capture: wait until the hotkey's modifier keys are really let go, tell the app
+/// under the pointer they're up, then give the pointer a real mouse move. Some apps change the
+/// pointer while a modifier is held (Ghostty shows a crosshair while Option is down, for block
+/// selection) and only change it back when they see the key go up and the mouse move.
+@MainActor
+public enum PointerReset {
+    /// Returns true if the modifiers were let go within `timeout` seconds (then the key-ups were
+    /// sent). Keys still held after that are left alone: sending a key-up for a key the user is
+    /// holding would confuse the app. The mouse move is sent either way.
+    @discardableResult
+    public static func run(timeout: Double = 10, modifiersHeld: () -> Bool, now: () -> Double, sleep: (Int) async -> Void,
+                           sendModifierKeyUps: () -> Void, sendMouseMove: () -> Void) async -> Bool {
+        let start = now()
+        while modifiersHeld() && now() - start < timeout { await sleep(50) }
+        let released = !modifiersHeld()
+        if released { sendModifierKeyUps() }
+        sendMouseMove()
+        return released
+    }
+}
+
+/// The version line at the top of the menu and in Settings, from the app's own Info.plist.
+public enum AppVersion {
+    /// "Tallshot 1.1.1", from `CFBundleShortVersionString`; "Tallshot" if it's missing.
+    public static func title(info: [String: Any]?) -> String {
+        guard let v = info?["CFBundleShortVersionString"] as? String, !v.trimmingWhitespace.isEmpty else { return "Tallshot" }
+        return "Tallshot \(v.trimmingWhitespace)"
+    }
+
+    /// Opened in the browser by Release Notes…; Tallshot itself never connects to it.
+    public static let releaseNotesAddress = "https://github.com/garoknows/tallshot/releases"
+}

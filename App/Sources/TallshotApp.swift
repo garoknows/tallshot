@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import TallshotCore
 
 /// The real entry point. The permission check has to run before any of the app starts up.
 @main
@@ -7,6 +8,10 @@ enum TallshotEntry {
     static func main() {
         if CommandLine.arguments.contains(Permissions.checkScreenRecordingFlag) {
             exit(CGPreflightScreenCaptureAccess() ? Permissions.screenRecordingOnExit : Permissions.screenRecordingOffExit)
+        }
+        // For scripts/test-version.sh: exits 0 if the menu's version line is exactly the given text.
+        if let i = CommandLine.arguments.firstIndex(of: "--menu-version-is"), i + 1 < CommandLine.arguments.count {
+            exit(MenuContent.versionLine == CommandLine.arguments[i + 1] ? 0 : 1)
         }
         TallshotApp.main()
     }
@@ -42,7 +47,13 @@ struct MenuContent: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
 
+    /// "Tallshot 1.1.1", read from this app's own Info.plist, so it can't go out of date.
+    static var versionLine: String { AppVersion.title(info: Bundle.main.infoDictionary) }
+
     var body: some View {
+        Button(Self.versionLine) {}
+            .disabled(true)
+        Divider()
         Button("Capture Now") { captureSoon(fromTop: false) }
             .keyboardShortcut(settings.captureHotkey)
         Button("Capture from Top") { captureSoon(fromTop: true) }
@@ -56,6 +67,8 @@ struct MenuContent: View {
         Button("Settings…") { WindowRouter.shared.showSettings() }
             .keyboardShortcut(",", modifiers: .command)
         Button("Run Self-Test") { SelfTest.shared.run() }
+        // Opens the page in the browser. Tallshot itself makes no network connection.
+        Button("Release Notes…") { if let url = URL(string: AppVersion.releaseNotesAddress) { NSWorkspace.shared.open(url) } }
         Divider()
         Button("Quit Tallshot") { NSApp.terminate(nil) }
             .keyboardShortcut("q", modifiers: .command)

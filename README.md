@@ -26,7 +26,7 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 - **File names that say what's in them.** For example `Arc - example.com - Chat test - 2026-11-07 at 14.05 - Tallshot.png`: the app, the site's domain in a browser, the window or page title, the date and time. Nothing goes in from a password field that has the keyboard or a Chrome Incognito window. The title and domain go only in the file names, not inside the files (the PDF's title is just "Tallshot capture"); the one exception is the Markdown file's link to the PNG beside it. Settings → Output → File names → Date only gives `2026-11-07 at 14.05.22 - Tallshot.png`.
 - **It measures every step.** If an app scrolls further than asked, Tallshot asks for less and walks back until the pictures overlap again. If a capture stops early, the pop-up says so and why.
 
-<p align="center"><img src="docs/images/menu.png" width="420" alt="The Tallshot menu: Capture Now, Capture from Top, Capture as Image, Settings, Run Self-Test, Quit"></p>
+<p align="center"><img src="docs/images/menu.png" width="420" alt="The Tallshot menu: the version line, Capture Now, Capture from Top, Capture as Image, Settings, Run Self-Test, Release Notes, Quit"></p>
 
 ### From Raycast, Shortcuts or a script
 

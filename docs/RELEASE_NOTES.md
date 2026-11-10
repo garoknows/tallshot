@@ -9,10 +9,12 @@ Signed with a Developer ID and notarized by Apple, so it opens with no warning.
 - **Capture as Image.** A new menu item, with an optional hotkey in Settings, that always takes the scrolling screenshot. Also `tallshot://capture?as=image`.
 - **Your choice.** Settings → General → When an app shares its text: **Copy the text (no scrolling)** (the default) or **Always take a scrolling screenshot**.
 - **The pop-up says which mode ran**, and, when an app's text couldn't be used, why.
+- **Which version you have** is the first line of the menu, and at the bottom of Settings. **Release Notes…** in the menu opens this page in your browser (Tallshot itself still makes no network connections).
 
 **Fixed**
 
-- The pointer could keep the shape it had over the captured app (an I-beam, for example) after a capture, until you moved the mouse. Tallshot now always hands it back with a real mouse move, after a finished capture, Esc, an error or an early stop.
+- **The pointer could stay a crosshair after a capture** until you clicked or moved away. Some apps change the pointer while a modifier key is down: Ghostty shows a crosshair while Option is held, for block selection, and Tallshot's default hotkey includes Option. Tallshot now waits until you've let go of the hotkey's keys, tells the app under the pointer they're up, and moves the pointer in place, after every capture: finished, Esc, an error, an early stop or a text capture.
+- **A refused hotkey names the likely culprit.** If macOS won't give Tallshot a hotkey because another app took it first, and Shottr or CleanShot X is running, the warning says so.
 - In 1.0, a terminal sitting at the bottom of its history was scrolled up and back down before the capture gave up. A terminal that shares its text now gets a text capture instead, with no scrolling.
 
 Everything from 1.0 is still here, including the review fixes: lower memory for very large captures, nothing private inside saved files, no freeze when pointing at Tallshot's own windows, and the safer `install.sh`.

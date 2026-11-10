@@ -117,7 +117,8 @@ final class AppModel: ObservableObject {
         let refused = settings.hotkey(slot: slot)?.display ?? ""
         settings.setHotkey(previous, slot: slot)
         registerHotkeys()
-        hotkeyWarnings[slot] = "macOS refused \(refused) (another app has it), so it wasn't kept. Pick a different one."
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        hotkeyWarnings[slot] = HotkeyConflicts.refusedMessage(display: refused, running: running)
     }
 
     static func hotkeyName(_ slot: UInt32) -> String {
@@ -161,37 +162,44 @@ final class AppModel: ObservableObject {
         if let pointer, SelfTest.shared.contains(pointer) { SelfTest.shared.runFromHotkey(); return }
         isCapturing = true
         Task {
-            defer { isCapturing = false }
-            guard let (target, axSwitch) = await TargetFinder.find(at: pointer, mode: settings.captureMode) else {
-                Toast.show(message: "Nothing to capture here.", detail: "Point at a window and try again.")
+            await captureOnce(pointer: pointer, fromTop: fromTop, asImage: asImage)
+            isCapturing = false
+            // However it ended (saved, Esc, an error, an early stop, a text capture, nothing
+            // found), the pointer ends up as the app's normal pointer. See `PointerReset`.
+            await LivePointer.resetAfterCapture()
+        }
+    }
+
+    private func captureOnce(pointer: CGPoint?, fromTop: Bool, asImage: Bool) async {
+        guard let (target, axSwitch) = await TargetFinder.find(at: pointer, mode: settings.captureMode) else {
+            Toast.show(message: "Nothing to capture here.", detail: "Point at a window and try again.")
+            return
+        }
+        defer { axSwitch?.restore() }
+        // Named before anything scrolls, while the window is as the user left it.
+        let baseName = settings.descriptiveFileNames
+            ? CaptureName.descriptive(TargetFinder.nameFacts(for: target), date: Date())
+            : CaptureName.plain(date: Date())
+        var mode = asImage ? "Scrolling screenshot (Capture as Image)." : "Scrolling screenshot."
+        if !asImage && settings.textCapture == .copyText {
+            let shared = SharedTextReader.read(target)
+            if let doc = shared.document {
+                RegionFlash.show(target.region, seconds: 0.5)
+                await deliverText(doc, target: target, baseName: baseName)
                 return
             }
-            defer { axSwitch?.restore() }
-            // Named before anything scrolls, while the window is as the user left it.
-            let baseName = settings.descriptiveFileNames
-                ? CaptureName.descriptive(TargetFinder.nameFacts(for: target), date: Date())
-                : CaptureName.plain(date: Date())
-            var mode = asImage ? "Scrolling screenshot (Capture as Image)." : "Scrolling screenshot."
-            if !asImage && settings.textCapture == .copyText {
-                let shared = SharedTextReader.read(target)
-                if let doc = shared.document {
-                    RegionFlash.show(target.region, seconds: 0.5)
-                    await deliverText(doc, target: target, baseName: baseName)
-                    return
-                }
-                if let why = Self.whyNotText(shared.verdict) { mode = "Scrolling screenshot: \(why)" }
-            }
-            do {
-                // Wait for the keys of the hotkey that was actually pressed.
-                let key = (asImage ? settings.imageHotkey : fromTop ? settings.fromTopHotkey : settings.captureHotkey)?.keyCode
-                let run = try await Self.run(target: target, options: settings.captureOptions(fromTop: fromTop),
-                                             hotkeyKeyCode: key, collectText: settings.needsText)
-                await deliver(run.result, capturer: run.capturer, target: target, text: run.text, baseName: baseName, mode: mode)
-            } catch is CancellationError {
-                Toast.show(message: "Cancelled.", detail: "Nothing was saved or copied.", near: target.region)
-            } catch {
-                Toast.show(message: "Capture failed.", detail: error.localizedDescription, near: target.region)
-            }
+            if let why = Self.whyNotText(shared.verdict) { mode = "Scrolling screenshot: \(why)" }
+        }
+        do {
+            // Wait for the keys of the hotkey that was actually pressed.
+            let key = (asImage ? settings.imageHotkey : fromTop ? settings.fromTopHotkey : settings.captureHotkey)?.keyCode
+            let run = try await Self.run(target: target, options: settings.captureOptions(fromTop: fromTop),
+                                         hotkeyKeyCode: key, collectText: settings.needsText)
+            await deliver(run.result, capturer: run.capturer, target: target, text: run.text, baseName: baseName, mode: mode)
+        } catch is CancellationError {
+            Toast.show(message: "Cancelled.", detail: "Nothing was saved or copied.", near: target.region)
+        } catch {
+            Toast.show(message: "Capture failed.", detail: error.localizedDescription, near: target.region)
         }
     }
 

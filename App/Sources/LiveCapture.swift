@@ -77,6 +77,30 @@ enum ScrollPoster {
     }
 }
 
+/// Puts the pointer back to normal after a capture (see `PointerReset`).
+@MainActor
+enum LivePointer {
+    static let modifierMask: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
+    /// Left and right Command, Option, Control and Shift.
+    static let modifierKeys: [CGKeyCode] = [55, 54, 58, 61, 59, 62, 56, 60]
+
+    static func resetAfterCapture() async {
+        await PointerReset.run(
+            modifiersHeld: { !CGEventSource.flagsState(.hidSystemState).intersection(modifierMask).isEmpty },
+            now: { ProcessInfo.processInfo.systemUptime },
+            sleep: { try? await Task.sleep(for: .milliseconds($0)) },
+            sendModifierKeyUps: {
+                for key in modifierKeys {
+                    guard let e = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: false) else { continue }
+                    e.flags = []
+                    e.setIntegerValueField(.eventSourceUserData, value: ScrollPoster.marker)
+                    e.post(tap: .cghidEventTap)
+                }
+            },
+            sendMouseMove: { LiveDriver.movePointer(to: TargetFinder.pointerLocation()) })
+    }
+}
+
 /// Moves a scroll area by setting its scroll bar through Accessibility: exact, no animation,
 /// no momentum. The value runs from 0 (top) to 1 (bottom).
 @MainActor

@@ -216,3 +216,81 @@ struct HotkeySlotTests {
         #expect(HotkeyConflicts.sameKeys(as: 2, in: [1: a, 2: b]) == nil)
     }
 }
+
+@Suite("After every capture the pointer is reset", .serialized)
+@MainActor
+struct PointerResetTests {
+    /// A pretend keyboard and app: Option is held for `heldFor` seconds of the pretend clock.
+    /// The app shows a crosshair while it believes Option is down (as Ghostty does), and only
+    /// redraws the pointer when the mouse moves.
+    final class Desk {
+        var clock = 0.0
+        var heldFor: Double
+        var appThinksOptionDown = true
+        var pointer = "crosshair"
+        var log: [String] = []
+        init(heldFor: Double) { self.heldFor = heldFor }
+        var held: Bool { clock < heldFor }
+    }
+
+    func reset(_ d: Desk) async -> Bool {
+        await PointerReset.run(modifiersHeld: { d.held }, now: { d.clock }, sleep: { d.clock += Double($0) / 1000 },
+                               sendModifierKeyUps: { d.log.append("key-ups"); d.appThinksOptionDown = false },
+                               sendMouseMove: { d.log.append("move"); d.pointer = d.appThinksOptionDown ? "crosshair" : "arrow" })
+    }
+
+    @Test func theCrosshairBecomesTheArrowOnceTheKeysAreUp() async {
+        let d = Desk(heldFor: 0.7)   // the user lets go of ⌃⌥⇧⌘ a moment after the capture
+        #expect(await reset(d))
+        #expect(d.log == ["key-ups", "move"], "key-ups only after the keys are really up, then a move")
+        #expect(d.clock >= 0.7)
+        #expect(d.pointer == "arrow")
+    }
+
+    @Test func aTextCaptureRightAfterTheHotkeyStillEndsWithTheArrow() async {
+        // A text capture finishes in a moment, while the hotkey's keys are still down.
+        let d = Desk(heldFor: 2.5)
+        #expect(await reset(d))
+        #expect(d.pointer == "arrow")
+    }
+
+    @Test func keysHeldTooLongAreLeftAlone() async {
+        let d = Desk(heldFor: 60)
+        #expect(await reset(d) == false)
+        #expect(d.log == ["move"], "no fake key-up for a key the user is still holding")
+        #expect(d.clock >= 10 && d.clock < 11)
+    }
+
+    @Test func withNoKeysHeldItIsImmediate() async {
+        let d = Desk(heldFor: 0)
+        #expect(await reset(d))
+        #expect(d.clock == 0 && d.pointer == "arrow")
+    }
+}
+
+@Suite("The version line")
+struct AppVersionTests {
+    @Test func itComesFromTheInfoPlist() {
+        #expect(AppVersion.title(info: ["CFBundleShortVersionString": "1.1.1"]) == "Tallshot 1.1.1")
+        #expect(AppVersion.title(info: ["CFBundleShortVersionString": " 2.0.0 \n"]) == "Tallshot 2.0.0")
+        #expect(AppVersion.title(info: [:]) == "Tallshot")
+        #expect(AppVersion.title(info: nil) == "Tallshot")
+    }
+
+    @Test func releaseNotesIsTheReleasesPage() {
+        #expect(AppVersion.releaseNotesAddress == "https://github.com/garoknows/tallshot/releases")
+    }
+}
+
+@Suite("A refused hotkey names the likely screenshot app")
+struct HotkeyClashTests {
+    @Test func shottrIsNamedWhenItIsRunning() {
+        let m = HotkeyConflicts.refusedMessage(display: "⌃⌥⇧⌘X", running: ["cc.ffitch.shottr", "com.apple.finder"])
+        #expect(m.contains("macOS refused ⌃⌥⇧⌘X") && m.contains("Shottr is running and is the likely one"))
+        let both = HotkeyConflicts.refusedMessage(running: ["cc.ffitch.shottr", "pl.maketheweb.cleanshotx"])
+        #expect(both.contains("Shottr or CleanShot X"))
+        #expect(!HotkeyConflicts.refusedMessage(running: ["com.apple.finder"]).contains("likely"))
+        #expect(HotkeyConflicts.warning(keyCode: 7, modifiers: HotkeyConflicts.hyper, registered: false, systemTaken: false,
+                                        running: ["cc.ffitch.shottr"])?.contains("Shottr") ?? false)
+    }
+}
