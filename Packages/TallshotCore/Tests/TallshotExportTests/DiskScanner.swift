@@ -29,6 +29,19 @@ struct DiskScanner {
         forms = rows.flatMap(Self.byteForms)
     }
 
+    /// The `count` rows of `image` whose colour changes most often along the row. A plain row (one
+    /// background colour) is a run of the same few bytes that any file could hold by chance, so it
+    /// can't serve as a fingerprint.
+    static func distinctiveRows(of image: PixelImage, count: Int = 2) -> [[UInt32]] {
+        (0..<image.height).map { Array(image.row($0)) }.sorted { changes($0) > changes($1) }.prefix(count).map { $0 }
+    }
+
+    /// How many times the colour changes from one pixel to the next.
+    static func changes(_ row: [UInt32]) -> Int { zip(row, row.dropFirst()).filter { $0 != $1 }.count }
+
+    /// Fewest colour changes a fingerprint row must have.
+    static let minimumChanges = 12
+
     /// What was found in `data`, such as "text" or "pixels" (empty when nothing).
     func findings(in data: Data, depth: Int = 0) -> Set<String> {
         guard depth < 4, !data.isEmpty else { return [] }

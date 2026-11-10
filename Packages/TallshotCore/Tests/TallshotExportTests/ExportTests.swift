@@ -272,7 +272,9 @@ struct ExportPrivacyTests {
         // Nothing else holds the exported words or pixels. The search decodes PNGs, unpacks PDF
         // streams and unzips Word files (their data is compressed), and must first find them in
         // the chosen folder, or it proves nothing.
-        let scanner = DiskScanner(texts: [marker], rows: [Array(px.row(px.height / 2))])
+        let rows = DiskScanner.distinctiveRows(of: px)
+        #expect(rows.allSatisfy { DiskScanner.changes($0) >= DiskScanner.minimumChanges }, "the pixel fingerprint must not be a plain row")
+        let scanner = DiskScanner(texts: [marker], rows: rows)
         for ext in exts {
             let data = try Data(contentsOf: folder.appendingPathComponent("\(name).\(ext)"))
             #expect(!scanner.findings(in: data).isEmpty, "the search can't see the content of the .\(ext)")
