@@ -82,6 +82,24 @@ struct PrivacyTests {
         return Saved(folder: folder, files: written.files, report: report, scanner: DiskScanner(texts: [marker], rows: rows))
     }
 
+    /// A text capture (the app shared its whole text): the same code the app runs, Markdown, PDF
+    /// and Word saved into a new folder, and no picture at all.
+    func textCaptureAndSave() throws -> Saved {
+        let marker = "Tallshot text marker \(UInt64.random(in: 1...UInt64.max))"
+        let folder = Self.workFolder.appendingPathComponent("chosen \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let name = "Terminal - \(marker) - 2026-11-09 at 10.00 - Tallshot"
+        let history = (1...400).map { "$ step \($0)" }.joined(separator: "\n") + "\n" + marker
+        let doc = PlainTextDocument.document(from: history, preformatted: true)
+        let plan = CaptureExport.Plan(png: true, pdf: true, docx: true, md: true, copyImage: true, copyText: false,
+                                      pageSize: .letter, wordImage: true, baseName: name).forText
+        let built = CaptureExport.buildText(doc, plan: plan)
+        let written = ExportFiles.write(built.files, baseName: name, folder: folder)
+        #expect(written.error == nil)
+        #expect(Set(written.files.keys) == ["md", "pdf", "docx"], "a text capture saves no PNG")
+        return Saved(folder: folder, files: written.files, report: nil, scanner: DiskScanner(texts: [marker], rows: []))
+    }
+
     /// The search can see the content where it was meant to go, in each format.
     func checkTheFolderHoldsIt(_ saved: Saved, diagnostics: Bool) throws {
         let s = saved.scanner
@@ -101,22 +119,27 @@ struct PrivacyTests {
         }
     }
 
-    /// Two captures (diagnostics off, then on) saved the way the app saves them, plus a planted
+    /// Three captures (diagnostics off, then on, then a text capture) saved the way the app saves them, plus a planted
     /// stray copy of the first one's files. One search of every place a copy could land must find
     /// the planted copies (or the search proves nothing) and nothing else.
     @Test func captureContentStaysInTheChosenFolder() async throws {
         let started = Date().addingTimeInterval(-2)
         let off = try await captureAndSave(diagnostics: false)
         let on = try await captureAndSave(diagnostics: true)
+        let text = try textCaptureAndSave()
         let stray = Self.workFolder.appendingPathComponent("stray \(UUID().uuidString)")
-        defer { for f in [off.folder, on.folder, stray] { try? FileManager.default.removeItem(at: f) } }
+        defer { for f in [off.folder, on.folder, text.folder, stray] { try? FileManager.default.removeItem(at: f) } }
         try checkTheFolderHoldsIt(off, diagnostics: false)
         try checkTheFolderHoldsIt(on, diagnostics: true)
+        for ext in ["md", "pdf", "docx"] {
+            let found = text.files[ext].flatMap { try? Data(contentsOf: $0) }.map { text.scanner.findings(in: $0) } ?? []
+            #expect(found.contains("text"), "the search can't see the text capture's words in its .\(ext)")
+        }
         try FileManager.default.createDirectory(at: stray, withIntermediateDirectories: true)
         for (ext, url) in off.files { try FileManager.default.copyItem(at: url, to: stray.appendingPathComponent("copy.\(ext)")) }
 
-        let both = DiskScanner(texts: off.scanner.texts + on.scanner.texts, rows: off.scanner.rows + on.scanner.rows)
-        let hits = both.scan(Self.placesToSearch, topLevelOnly: [Self.desktop], changedSince: started, skipping: [off.folder, on.folder])
+        let all = DiskScanner(texts: off.scanner.texts + on.scanner.texts + text.scanner.texts, rows: off.scanner.rows + on.scanner.rows)
+        let hits = all.scan(Self.placesToSearch, topLevelOnly: [Self.desktop], changedSince: started, skipping: [off.folder, on.folder, text.folder])
         let strayPath = stray.resolvingSymlinksInPath().path
         for ext in ["png", "pdf", "docx", "md"] {
             #expect(hits.keys.contains("\(strayPath)/copy.\(ext)"), "the search missed a stray .\(ext), so it can't be trusted")

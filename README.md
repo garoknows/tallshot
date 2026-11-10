@@ -18,6 +18,7 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 
 - **Sticky headers and chat input boxes appear once**, not on every strip. Tallshot spots the parts that never move and leaves them out of the line-up.
 - **It starts where you are.** To get the whole thing, use **Capture from Top** in the menu (you can give it its own hotkey in Settings).
+- **Terminals and documents: just the text.** When the pane is a terminal (Ghostty, Terminal), Notes, TextEdit or a code editor that shares all its text with macOS, Tallshot copies that text as Markdown and saves it (plus PDF and Word if those are on), with no scrolling and no pictures. It does this only when the app shows its text is complete, scrolled-away part included. Browsers and chat apps share only what's on screen, so they always get a scrolling screenshot. **Capture as Image** in the menu (it can have its own hotkey) always takes the screenshot, and Settings → General → When an app shares its text → Always take a scrolling screenshot turns text captures off. The pop-up says which one ran.
 - **Stop any time:** press Esc, or touch the mouse or keyboard. Tallshot keeps what it captured so far.
 - **Very long pages** stop at 30,000 pixels tall or 60 seconds (both adjustable). Very wide captures also stop at 50 million pixels in all, to keep memory use well under 1 GB.
 - **Browsers and chat apps.** In Chrome, Arc, Safari and Electron apps Tallshot finds the pane you point at, leaves out the browser's toolbar and the app's sidebar, and handles the floating buttons and message box of chat apps. **Capture from Top** waits for older messages to load, so you can export a whole chat.
@@ -25,13 +26,14 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 - **File names that say what's in them.** For example `Arc - example.com - Chat test - 2026-11-07 at 14.05 - Tallshot.png`: the app, the site's domain in a browser, the window or page title, the date and time. Nothing goes in from a password field that has the keyboard or a Chrome Incognito window. The title and domain go only in the file names, not inside the files (the PDF's title is just "Tallshot capture"); the one exception is the Markdown file's link to the PNG beside it. Settings → Output → File names → Date only gives `2026-11-07 at 14.05.22 - Tallshot.png`.
 - **It measures every step.** If an app scrolls further than asked, Tallshot asks for less and walks back until the pictures overlap again. If a capture stops early, the pop-up says so and why.
 
-<p align="center"><img src="docs/images/menu.png" width="420" alt="The Tallshot menu: Capture Now, Capture from Top, Settings, Run Self-Test, Quit"></p>
+<p align="center"><img src="docs/images/menu.png" width="420" alt="The Tallshot menu: the version line, Capture Now, Capture from Top, Capture as Image, Settings, Run Self-Test, Release Notes, Quit"></p>
 
 ### From Raycast, Shortcuts or a script
 
 ```
 open tallshot://capture
 open "tallshot://capture?from=top"
+open "tallshot://capture?as=image"
 ```
 
 ## Install
@@ -63,6 +65,7 @@ Tallshot can see the screen and send scroll events, so these rules matter. Each 
 
 - **No network.** There is no networking code and no third-party code in the app. A check in CI scans the source and the built app on every push.
 - **Captures go only where you send them:** your clipboard and the folder you chose. Frames are held in memory during a capture and never written to temp files, caches or logs. PDF, Word and Markdown are built in memory and written straight into that folder.
+- **Text captures read only the pane you point at.** When an app shares its whole text, Tallshot reads that one text element through Accessibility, when you press the hotkey, and puts it only on your clipboard and in your folder, like any capture.
 - **Text recognition happens on your Mac** (Apple's Vision framework). No text or image is sent anywhere.
 - **Captures only when you ask.** Nothing runs in the background. The screen is read only between the hotkey and the end of that capture.
 - **Protected windows stay protected.** Windows macOS marks as private are left as macOS returns them.

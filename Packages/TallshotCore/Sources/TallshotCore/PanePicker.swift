@@ -108,6 +108,32 @@ public enum HotkeyConflicts {
     public static let cmd: UInt32 = 1 << 8, shift: UInt32 = 1 << 9, option: UInt32 = 1 << 11, control: UInt32 = 1 << 12
     public static let hyper: UInt32 = cmd | shift | option | control
 
+    /// Screenshot apps that register global hotkeys of their own.
+    public static let screenshotApps: [(name: String, bundleID: String)] = [
+        ("Shottr", "cc.ffitch.shottr"), ("CleanShot X", "pl.maketheweb.cleanshotx"),
+    ]
+
+    /// macOS refused the hotkey because another app registered it first. macOS doesn't say which
+    /// app, so a running screenshot app is named as the likely one.
+    public static func refusedMessage(display: String = "this hotkey", running: Set<String>) -> String {
+        let shots = screenshotApps.filter { running.contains($0.bundleID) }.map(\.name)
+        let likely = shots.isEmpty ? "" : " \(shots.joined(separator: " or ")) is running and is the likely one: check its shortcuts."
+        return "macOS refused \(display) (another app has it), so it wasn't kept.\(likely) Pick a different one."
+    }
+
+    /// One hotkey's key and modifiers.
+    public struct Keys: Equatable, Sendable {
+        public var keyCode: UInt32, modifiers: UInt32
+        public init(keyCode: UInt32, modifiers: UInt32) { self.keyCode = keyCode; self.modifiers = modifiers }
+    }
+
+    /// Another of Tallshot's hotkey slots that already has the same keys as `slot` (the lowest
+    /// numbered one), or nil.
+    public static func sameKeys(as slot: UInt32, in keys: [UInt32: Keys]) -> UInt32? {
+        guard let mine = keys[slot] else { return nil }
+        return keys.filter { $0.key != slot && $0.value == mine }.keys.min()
+    }
+
     /// Virtual key codes for the letters that matter here.
     public static let keyC: UInt32 = 8, keyV: UInt32 = 9, keyF: UInt32 = 3, keyX: UInt32 = 7, keySpace: UInt32 = 49
     public static let key3: UInt32 = 20, key4: UInt32 = 21, key5: UInt32 = 23, key6: UInt32 = 22
@@ -140,7 +166,7 @@ public enum HotkeyConflicts {
     /// whether it matches an enabled macOS keyboard shortcut; `running` the apps now open.
     public static func warning(keyCode: UInt32, modifiers: UInt32, registered: Bool, systemTaken: Bool,
                                running: Set<String>) -> String? {
-        if !registered { return "macOS refused this hotkey (another app has it). Pick a different one." }
+        if !registered { return refusedMessage(running: running) }
         if systemTaken { return "macOS already uses this for a keyboard shortcut (System Settings → Keyboard → Keyboard Shortcuts), so it may not reach Tallshot." }
         for k in known where k.keyCode == keyCode && k.modifiers == modifiers {
             if let id = k.bundleID {

@@ -68,14 +68,7 @@ final class TextCollector {
             // text area is a message box, and is left out.
             guard let f = TargetFinder.frame(el), f.height > region.height * 0.4,
                   let value: String = TargetFinder.attribute(el, kAXValueAttribute) else { return }
-            for line in value.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                let t = String(line)
-                if let first = t.first, "•◦▪-–*".contains(first) {
-                    out.append(.listItem(level: 0, ordered: false, [Inline(t.dropFirst().trimmingCharacters(in: .whitespaces))]))
-                } else {
-                    out.append(.paragraph([Inline(t)]))
-                }
-            }
+            out += PlainTextDocument.prose(value)
         default:
             if isCode(el, role: r) {
                 guard onScreen(el) else { return }

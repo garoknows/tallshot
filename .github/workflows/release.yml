@@ -102,6 +102,7 @@ jobs:
           ditto "build.nosync/dd/Build/Products/Release/$APP_NAME.app" "dist/$APP_NAME.app"
           codesign --verify --deep --strict --verbose=2 "dist/$APP_NAME.app"
           scripts/check-privacy.sh "dist/$APP_NAME.app"
+          scripts/test-version.sh "dist/$APP_NAME.app"
 
       - name: Write App Store Connect API key
         if: env.HAS_NOTARY == 'true'

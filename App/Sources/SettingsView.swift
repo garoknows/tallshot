@@ -27,6 +27,7 @@ struct SettingsView: View {
                 }
             }
             .padding(20)
+            Text(AppVersion.title(info: Bundle.main.infoDictionary)).font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
         }
         .frame(width: 520)
     }
@@ -54,6 +55,19 @@ struct SettingsView: View {
                 HotkeyRecorder(hotkey: $settings.fromTopHotkey, allowNone: true) { old in model.hotkeyChanged(slot: 2, previous: old) }
             }
             warning(2)
+            row("Capture as image") {
+                HotkeyRecorder(hotkey: $settings.imageHotkey, allowNone: true) { old in model.hotkeyChanged(slot: 3, previous: old) }
+            }
+            warning(3)
+            hint("Always takes a scrolling screenshot, even when the app shares its text. Also in the menu.")
+            Divider()
+            row("When an app shares its text") {
+                Picker("", selection: $settings.textCapture) {
+                    ForEach(TextCapture.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.radioGroup).labelsHidden()
+            }
+            hint("Terminals, Notes, TextEdit and many code editors share all their text, so Tallshot can save and copy it as Markdown without scrolling (plus PDF and Word if those are on). Browsers and chat apps share only what's on screen, so they always get a scrolling screenshot.")
             Divider()
             row("Capture") {
                 Picker("", selection: $settings.captureMode) {
@@ -172,7 +186,8 @@ struct SettingsView: View {
 
     func row<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label).frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
+            Text(label).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+                .frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
             content()
             Spacer(minLength: 0)
         }
@@ -229,6 +244,7 @@ struct HotkeyRecorder: View {
         // A registered hotkey would fire (and start a capture) before this field saw the keys.
         HotKeys.shared.set(1, nil, action: {})
         HotKeys.shared.set(2, nil, action: {})
+        HotKeys.shared.set(3, nil, action: {})
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             if e.keyCode == 53 { stop(); return nil }                         // Esc
             if e.keyCode == 51 && allowNone { let old = hotkey; hotkey = nil; onChange(old); stop(); return nil }   // Delete
