@@ -8,8 +8,6 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 
 **Website:** https://garoknows.github.io/tallshot/
 
-> **Early preview.** Tallshot is being built and tested by its author. It may not work on your Mac yet. Releases are GitHub pre-releases until it has proven itself in daily use.
-
 ## How it works
 
 1. **Point** the mouse at what you want: a web page, a chat thread, one pane of a split window, a Finder list. Tallshot captures just that pane: no app sidebar, no browser toolbar.
