@@ -2,57 +2,89 @@ import CoreGraphics
 import Testing
 @testable import TallshotCore
 
-/// A pretend chat pane 600 points tall, with messages 80 points apart.
-@Suite("Accessibility probe: does the tree hold the whole conversation?")
+/// A pretend chat window: a sidebar list, a toolbar and the message column, each in its own
+/// scroll area. Frames are all "on screen", as web apps report them.
+private struct ChatWindow {
+    var nodes: [ProbeNode] = []
+    var texts: [Int: String] = [:]
+    let pane = CGRect(x: 300, y: 60, width: 700, height: 800)
+
+    @discardableResult
+    mutating func add(_ role: String, parent: Int?, text: String? = nil, classes: [String] = []) -> Int {
+        nodes.append(ProbeNode(role: role, frame: pane, textLength: text?.count ?? 0, classes: classes, parent: parent))
+        if let text { texts[nodes.count - 1] = text }
+        return nodes.count - 1
+    }
+
+    /// `messages` alternating You / Claude, each 300 characters.
+    static func make(messages: Int, sidebarItems: Int = 40) -> ChatWindow {
+        var w = ChatWindow()
+        let window = w.add("AXWindow", parent: nil)
+        let toolbar = w.add("AXScrollArea", parent: window)
+        for i in 0..<12 { w.add("AXButton", parent: toolbar, text: "Button \(i)", classes: ["group/btn", "items-center"]) }
+        let sidebar = w.add("AXScrollArea", parent: window)
+        for i in 0..<sidebarItems { w.add("AXStaticText", parent: sidebar, text: "Chat title \(i)", classes: ["_TableCell_"]) }
+        let column = w.add("AXScrollArea", parent: window)
+        let list = w.add("AXGroup", parent: column, classes: ["flex-col"])
+        for i in 0..<messages {
+            let speaker = i % 2 == 0 ? "font-user-message" : "font-claude-message"
+            let m = w.add("AXGroup", parent: list, classes: ["message", speaker])
+            w.add("AXStaticText", parent: m, text: "Message \(i): " + String(repeating: "x", count: 288))
+        }
+        w.add("AXTextArea", parent: window)   // the empty message box
+        return w
+    }
+
+    func report(_ tree: ProbeTree, area: Int) -> ProbeReport {
+        ProbeReport.make(tree: tree, area: area, visible: pane, appName: "Claude", bundleID: "com.anthropic.claudefordesktop",
+                         settledAfter: 800, cutShort: false)
+    }
+}
+
+@Suite("Accessibility probe 2: judged by the text, not by frames")
 struct TreeProbeTests {
-    let pane = CGRect(x: 0, y: 100, width: 700, height: 600)
-
-    func message(_ i: Int, classes: [String] = ["font-claude-message"]) -> ProbeNode {
-        ProbeNode(role: "AXStaticText", frame: CGRect(x: 20, y: 100 + CGFloat(i) * 80, width: 600, height: 60), textLength: 120, classes: classes)
+    @Test func theMessageColumnIsPickedNotTheToolbarOrSidebar() {
+        let w = ChatWindow.make(messages: 60)
+        let tree = ProbeTree(w.nodes)
+        let area = tree.messageArea()
+        #expect(tree.nodes[tree.children[area].first!].classes == ["flex-col"], "the column holding the messages")
+        let found = tree.messageList(in: area)
+        #expect(found?.messages.count == 60)
+        // The first and last message, in the tree's own order.
+        let firstText = tree.inOrder(from: found!.messages.first!).compactMap { w.texts[$0] }.first
+        let lastText = tree.inOrder(from: found!.messages.last!).compactMap { w.texts[$0] }.first
+        #expect(firstText?.hasPrefix("Message 0:") == true && lastText?.hasPrefix("Message 59:") == true)
     }
 
-    func report(_ nodes: [ProbeNode]) -> ProbeReport {
-        ProbeReport.make(nodes: nodes, region: pane, appName: "Chat", bundleID: "com.example.chat", paneRole: "AXGroup", cutShort: false)
+    @Test func aLongConversationIsBeyondTheScreenEvenWithOnScreenFrames() {
+        let w = ChatWindow.make(messages: 200)   // 60,000 characters; a screenful is about 5,000
+        let tree = ProbeTree(w.nodes)
+        let r = w.report(tree, area: tree.messageArea())
+        #expect(r.verdict == .beyondScreen)
+        #expect(r.screenfuls > 10 && r.messages == 200)
+        #expect(r.messageClasses == ["message"])
+        #expect(r.varyingClasses.map(\.name).sorted() == ["font-claude-message", "font-user-message"], "the speaker classes")
     }
 
-    @Test func theWholeConversationRunsWithoutGaps() {
-        // 200 messages from 60 screens up to the bottom, every one in the tree.
-        let r = report((-180...7).map { message($0) })
-        #expect(r.verdict == .continuous)
-        #expect(r.above > 150 && r.onScreen > 0)
-        #expect(r.textTop < -20 && r.largestGap < 1)
+    @Test func aScreenfulIsReportedAsSuch() {
+        let w = ChatWindow.make(messages: 8)
+        let tree = ProbeTree(w.nodes)
+        #expect(w.report(tree, area: tree.messageArea()).verdict == .aboutAScreenful)
     }
 
-    @Test func onlyTheMessagesNearTheScreen() {
-        // A list that keeps a few messages around the screen (and drops the rest).
-        let r = report((-3...10).map { message($0) })
-        #expect(r.verdict == .nearScreenOnly)
+    @Test func theReportHasNoTextFromTheApp() {
+        let w = ChatWindow.make(messages: 50)
+        let tree = ProbeTree(w.nodes)
+        let t = w.report(tree, area: tree.messageArea()).text
+        #expect(!t.contains("Message 0") && !t.contains("xxxxx") && !t.contains("Chat title"))
+        #expect(t.contains("Messages (repeated containers): 50"))
+        #expect(t.contains("the tree stopped growing after 800 ms"))
     }
 
-    @Test func aVirtualListLeavesEmptyStretches() {
-        // Messages near the top and near the screen, with 40 screens of empty spacer between.
-        let r = report((-300 ... -290).map { message($0) } + (-3...7).map { message($0) })
-        #expect(r.verdict == .gaps)
-        #expect(r.gapsOverOneScreen == 1 && r.largestGap > 30)
-    }
-
-    @Test func emptyPane() {
-        #expect(report([ProbeNode(role: "AXGroup", frame: pane)]).verdict == .noText)
-    }
-
-    @Test func theReportHoldsNoTextOnlyShapeAndClassNames() {
-        var nodes = (-50...7).map { message($0, classes: $0 % 2 == 0 ? ["font-user-message"] : ["font-claude-message", "prose"]) }
-        nodes += [ProbeNode(role: "AXHeading", frame: nil), ProbeNode(role: "AXList", frame: nil),
-                  ProbeNode(role: "AXListItem", frame: nil), ProbeNode(role: "AXGroup", frame: nil, classes: ["language-swift"])]
-        let r = report(nodes)
-        #expect(r.headings == 1 && r.lists == 1 && r.listItems == 1 && r.codeBlocks == 1)
-        #expect(r.frequentClasses.map(\.name).prefix(3) == ["font-claude-message", "font-user-message", "prose"])
-        let t = r.text
-        #expect(t.contains("Verdict: Text runs well above and below the screen"))
-        #expect(t.contains("font-user-message ×29"))
-        // Class names longer than 40 characters (which could hold content) are left out.
-        let long = report([ProbeNode(role: "AXStaticText", frame: pane, textLength: 3, classes: [String(repeating: "x", count: 41)])] +
-                          (0..<3).map { _ in ProbeNode(role: "AXGroup", frame: nil, classes: [String(repeating: "x", count: 41)]) })
-        #expect(long.frequentClasses.isEmpty)
+    @Test func aTreeStillGrowingIsNotSettled() {
+        #expect(!TreeSettling.settled(counts: [665]))
+        #expect(!TreeSettling.settled(counts: [665, 759]))
+        #expect(TreeSettling.settled(counts: [665, 759, 759]))
+        #expect(!TreeSettling.settled(counts: [0, 0]))
     }
 }
