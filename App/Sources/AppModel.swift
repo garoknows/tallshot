@@ -142,6 +142,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Another hotkey row that already has these keys, if any.
+    func slotUsing(_ h: Hotkey, except slot: UInt32) -> UInt32? {
+        let all = [UInt32(1), 2, 3].reduce(into: [UInt32: HotkeyConflicts.Keys]()) { d, n in
+            if let k = settings.hotkey(slot: n) { d[n] = HotkeyConflicts.Keys(keyCode: k.keyCode, modifiers: k.modifiers) }
+        }
+        return HotkeyConflicts.slot(using: HotkeyConflicts.Keys(keyCode: h.keyCode, modifiers: h.modifiers), except: slot, in: all)
+    }
+
     static func hotkeyName(_ slot: UInt32) -> String {
         switch slot { case 1: "Capture"; case 2: "Capture from Top"; default: "Capture as Image" }
     }
