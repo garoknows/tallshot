@@ -118,5 +118,49 @@ FAKE_OUTPUT="$GOOD" PATH="$W/bin:$PATH" TALLSHOT_SIGNING_CONFIG="$W/Signing.xcco
 [ -e "$W/dest/Tallshot.app/new-copy" ] && ok "--remove-other-copies keeps the copy it just installed" || { bad "--remove-other-copies deleted the new install"; cat "$W/install.log"; }
 printf '#!/bin/bash\nexit 0\n' > "$W/bin/mdfind"
 
+echo "Worktrees"
+# Real git repos, in both layouts: git data in .git, and in a separate git folder (core.worktree).
+G="$W/git"; mkdir -p "$G"
+gitq() { git -c user.name="Tallshot Test" -c user.email="test@example.invalid" -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+try_install() {  # <checkout> <destination>: install from that checkout, ad hoc unless it has the signing config
+  env -u TALLSHOT_SIGNING_CONFIG PATH="$W/bin:$PATH" TALLSHOT_BUILD_DIR="$W/build" TALLSHOT_DEST="$2" \
+    TALLSHOT_SIGNED_ONLY_DEST="$W/apps" "$1/scripts/install.sh" >"$W/install.log" 2>&1
+}
+for layout in plain separate; do
+  M="$G/$layout-main"
+  # The separate layout as in the Tallshot repo: the git folder's core.worktree names the checkout.
+  if [ $layout = plain ]; then gitq init "$M"
+  else gitq init --separate-git-dir "$G/$layout.git" "$M"; gitq --git-dir="$G/$layout.git" config core.worktree "$M"; fi
+  mkdir -p "$M/Config"; cp -R "$ROOT/scripts" "$M/"; touch "$M/Config/Base.xcconfig"
+  printf 'Config/Signing.xcconfig\n' > "$M/.gitignore"
+  gitq -C "$M" add -A; gitq -C "$M" commit -m start
+  printf 'DEVELOPMENT_TEAM = %s\n' "$T" > "$M/Config/Signing.xcconfig"
+  MREAL="$(cd "$M" && pwd -P)"
+  # A worktree made the plain way has no signing config.
+  gitq -C "$M" worktree add -b "$layout-plain" "$G/$layout-plain-wt" HEAD
+  [ "$("$G/$layout-plain-wt/scripts/main-checkout.sh")" = "$MREAL" ] && ok "$layout: the main checkout is found from a worktree" \
+    || bad "$layout: main-checkout.sh printed '$("$G/$layout-plain-wt/scripts/main-checkout.sh")', not $MREAL"
+  rm -rf "$W/apps" "$W/build" "$W/killed" "$W/opened"; mkdir -p "$W/apps/Tallshot.app"; touch "$W/apps/Tallshot.app/signed-copy"
+  try_install "$G/$layout-plain-wt" "$W/apps/" && bad "$layout: an ad hoc build was installed over the signed one" \
+    || ok "$layout: an ad hoc build from a worktree is refused for the signed-only folder"
+  grep -qF "cp \"$MREAL/Config/Signing.xcconfig\"" "$W/install.log" && ok "  ...and the message gives the cp command" \
+    || { bad "  the message doesn't say how to fix it:"; cat "$W/install.log"; }
+  [ -e "$W/apps/Tallshot.app/signed-copy" ] && [ ! -e "$W/killed" ] && [ ! -e "$W/build/dd" ] \
+    && ok "  ...before building, quitting or replacing anything" || bad "  something was built, quit or replaced"
+  try_install "$G/$layout-plain-wt" "$W/elsewhere" && ok "$layout: an ad hoc build may still go to another folder" \
+    || { bad "$layout: an ad hoc build to another folder was refused"; cat "$W/install.log"; }
+  # new-worktree.sh copies the config, so the build is signed and installs.
+  TALLSHOT_WORKTREES="$G/wts-$layout" "$M/scripts/new-worktree.sh" helper HEAD >/dev/null 2>&1
+  H="$G/wts-$layout/helper"
+  [ -f "$H/Config/Signing.xcconfig" ] && ok "$layout: new-worktree.sh copies Config/Signing.xcconfig" || bad "$layout: new-worktree.sh didn't copy the config"
+  [ -z "$(git -C "$H" status --porcelain 2>/dev/null)" ] && ok "  ...and git doesn't see it (still ignored)" || bad "  the copied config shows in git status"
+  rm -f "$W/killed" "$W/opened"
+  FAKE_OUTPUT="$GOOD" try_install "$H" "$W/apps" && [ -e "$W/apps/Tallshot.app/new-copy" ] \
+    && ok "  ...and its signed build installs in the signed-only folder" || { bad "  the signed build from new-worktree.sh wasn't installed"; cat "$W/install.log"; }
+done
+# The main checkout itself without a signing config (a fresh clone) still installs ad hoc anywhere.
+rm -f "$G/plain-main/Config/Signing.xcconfig" "$W/killed"
+try_install "$G/plain-main" "$W/apps" && ok "a checkout with no signing anywhere installs ad hoc" || { bad "a fresh clone was refused"; cat "$W/install.log"; }
+
 [ $FAIL = 0 ] && echo "All signing check tests passed." || echo "Signing check tests FAILED."
 exit $FAIL
