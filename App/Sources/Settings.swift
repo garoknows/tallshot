@@ -126,7 +126,7 @@ final class Settings: ObservableObject {
     @Published var wordIncludesImage: Bool { didSet { d.set(wordIncludesImage, forKey: Keys.wordImage) } }
     /// Name files after what's in them (default), or only the date and time.
     @Published var descriptiveFileNames: Bool { didSet { d.set(descriptiveFileNames, forKey: Keys.descriptiveNames) } }
-    /// Chat apps checked with Check This App: bundle ID → name, the answer the user confirmed, and
+    /// Apps checked with Check This App: bundle ID → name, the answer the user confirmed, and
     /// the date. No chat text. Empty means only the built-in answers (`ChatApps.builtIn`) apply.
     @Published private(set) var checkedApps: [String: CheckedApp] {
         didSet { d.set(checkedApps.isEmpty ? nil : try? JSONEncoder().encode(checkedApps), forKey: Keys.checkedApps) }

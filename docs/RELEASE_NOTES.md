@@ -4,10 +4,12 @@ Signed with a Developer ID and notarized by Apple, so it opens with no warning.
 
 **New in 1.1.3**
 
-- **The ChatGPT app: the whole conversation as text.** Point at a chat in the ChatGPT app and press the hotkey: Tallshot copies every message, scrolled-away ones included, as Markdown with **You** and **ChatGPT** before each turn, keeping headings, lists, links and code blocks, with no scrolling. The Claude app keeps only the messages near the screen, so it still gets a scrolling screenshot. **Capture as Image** always takes the screenshot.
-- **Check This App…** (menu → Troubleshooting) finds out whether the app that was in front keeps its whole conversation. It shows the first and last message it found; you confirm, and Tallshot remembers the answer for that app. Settings → General → Chat apps lists the answers, with **Forget Checked Apps**.
+- **The ChatGPT app: the whole conversation as text.** Point at a chat in the ChatGPT app and press the hotkey: Tallshot copies every message, scrolled-away ones included, as Markdown with **You** and **ChatGPT** before each turn, keeping headings, lists, links, tables and code blocks (with their language), with no scrolling. The app's own interface text ("Skip to content", "can make mistakes" notices, navigation) is left out. The Claude app keeps only the messages near the screen, so it still gets a scrolling screenshot. **Capture as Image** always takes the screenshot.
+- **Check This App…** (menu → Troubleshooting) finds out whether the app that was in front keeps all its text (for a chat, the whole conversation). It shows the first and last text it found; you confirm, and Tallshot remembers the answer for that app. Settings → General → Apps lists the answers, with **Forget Checked Apps**.
 
 **Changed in 1.1.3**
+
+- **Markdown keeps every character.** Underscores inside words (`utm_source`) and web addresses are no longer escaped, and character references such as `&amp;` are decoded.
 
 - **A Troubleshooting submenu** holds Run Self-Test and Check This App….
 - **Tallshot's windows always open in front**, on the display with the pointer (the check's result, the self-test, Settings, setup). Before, a window could open behind the app you were using.

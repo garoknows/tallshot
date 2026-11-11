@@ -47,7 +47,8 @@ public enum TextPDF {
             case .paragraph(let spans): add(spans.map(\.text).joined(), body)
             case .listItem(let level, _, let spans):
                 add(String(repeating: "    ", count: max(0, level)) + "• " + spans.map(\.text).joined(), body)
-            case .code(let c): add(c, mono)
+            case .code(let c, _): add(c, mono)
+            case .table(let rows): rows.forEach { add($0.joined(separator: "  |  "), body) }
             case .speaker(let name): add("\n" + name + ":", speaker)
             }
         }

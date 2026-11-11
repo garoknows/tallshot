@@ -153,7 +153,7 @@ public enum PlainTextDocument {
     /// Lines of text, for the pop-up ("1,204 lines").
     public static func lineCount(_ doc: ExportDocument) -> Int {
         doc.blocks.reduce(0) { n, b in
-            if case .code(let c) = b { return n + c.split(separator: "\n", omittingEmptySubsequences: false).count }
+            if case .code(let c, _) = b { return n + c.split(separator: "\n", omittingEmptySubsequences: false).count }
             return n + b.plainText.split(separator: "\n", omittingEmptySubsequences: false).count
         }
     }

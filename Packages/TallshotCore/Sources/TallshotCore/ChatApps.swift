@@ -106,3 +106,64 @@ public struct FrontAppMemory: Sendable, Equatable {
     public mutating func activated(_ p: Int32) { if p != own { pid = p } }
     public mutating func terminated(_ p: Int32) { if pid == p { pid = nil } }
 }
+
+/// Real web browsers, which Check This App never switches to text capture: each site keeps its
+/// text differently, so one answer for the whole browser can't be right. An app that only opens
+/// web links (the ChatGPT app does, for its own links) is not a browser; a browser also opens
+/// web pages saved as files.
+public enum BrowserCheck {
+    public static let knownBrowsers: [String] = [
+        "com.apple.Safari", "com.apple.SafariTechnologyPreview", "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition",
+        "org.mozilla.nightly", "com.kagi.kagimacOS", "app.zen-browser.zen", "com.duckduckgo.macos.browser", "net.waterfox.waterfox",
+        "org.torproject.torbrowser",
+        "com.google.Chrome", "org.chromium.Chromium", "company.thebrowser.Browser", "company.thebrowser.dia", "com.microsoft.edgemac",
+        "com.brave.Browser", "com.vivaldi.Vivaldi", "com.operasoftware.Opera",
+    ]
+
+    public static func isRealBrowser(bundleID: String?, opensWebLinks: Bool, opensWebPageFiles: Bool) -> Bool {
+        if let id = bundleID, knownBrowsers.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) { return true }
+        return opensWebLinks && opensWebPageFiles
+    }
+}
+
+/// The words of Check This App's result window: about a chat when speakers were found,
+/// neutral ("text") for any other app.
+public struct CheckWording: Equatable, Sendable {
+    public var headline: String
+    public var explanation: String
+    public var firstLabel: String
+    public var lastLabel: String
+    /// "Who said what: …", only for a chat.
+    public var speakers: String?
+
+    public init(verdict: ProbeReport.Verdict, appName: String, screens: Double, reading: ChatReading?) {
+        let chat = reading?.isChat ?? false
+        let what = chat ? "this chat" : "this window's text"
+        let r = (screens * 10).rounded() / 10
+        let n = r == r.rounded() ? "\(Int(r))" : "\(r)"
+        switch verdict {
+        case .beyondScreen:
+            headline = "\(appName) keeps about \(n) screens of \(what), much more than fits on screen."
+            explanation = chat
+                ? "If the first message below is this chat's real first message (scroll to the top of the chat to compare), \(appName) keeps the whole conversation, and Tallshot can copy it as text with no scrolling."
+                : "If the first text below is the real start of what this window shows (scroll to the top to compare), \(appName) keeps all of it, and Tallshot can copy it as text with no scrolling."
+        case .aboutAScreenful:
+            headline = "\(appName) keeps only about \(n) screen\(n == "1" ? "" : "s") of \(what)."
+            explanation = chat
+                ? "If this chat is longer than one screen, \(appName) keeps only what's near the screen, so Tallshot keeps taking scrolling screenshots. If the chat really is this short, close this and check a longer one."
+                : "If there's more than one screen of it, \(appName) keeps only what's near the screen, so Tallshot keeps taking scrolling screenshots. If there really is this little, close this and check a longer one."
+        case .noText:
+            headline = "Tallshot found no text to copy in this window."
+            explanation = "Open something longer in the app, click its window, then choose Check This App… again."
+        }
+        firstLabel = chat ? "First message" : "First text"
+        lastLabel = chat ? "Last message" : "Last text"
+        speakers = reading.flatMap { r in r.isChat ? "Who said what: \(r.rule.note) (\(r.userTurns) of yours, \(r.replyTurns) replies)." : nil }
+    }
+
+    /// The first turn worth showing: for a chat, the first one with a speaker (not a title or
+    /// notice before your first message).
+    public static func firstTurn(_ reading: ChatReading) -> ChatTurn? {
+        reading.isChat ? reading.turns.first { $0.speaker != nil } : reading.turns.first
+    }
+}

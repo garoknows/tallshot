@@ -102,8 +102,8 @@ struct ChatTranscriptTests {
         #expect(md.contains("**ChatGPT:**\n\n## Day one"))
         #expect(md.contains("Start at [Belém Tower](https://example.org/belem), then lunch."))
         #expect(md.contains("- Pastéis de nata\n  - at the corner bakery\n- Tram 28"))
-        #expect(md.contains("```\ndays = 3\nprint(days)\n```"), "the code exactly, without the language label")
-        #expect(!md.contains("python"))
+        #expect(md.contains("```python\ndays = 3\nprint(days)\n```"), "the code exactly, its label as the fence's language")
+        #expect(!md.contains("python\n\n```"), "the label isn't a paragraph of its own")
         #expect(md.contains("Make it two days  \nand cheaper"), "your line breaks stay")
         #expect(md.contains("Run budget --days 2 first."), "inline code stays in its paragraph")
         #expect(!md.contains("Good response") && !md.contains("Copy message"), "buttons aren't text")
@@ -234,7 +234,8 @@ struct ChatTranscriptTests {
         let col = t.add("AXColumn", table)
         t.add("AXStaticText", col, text: "City")   // columns repeat the cells: left out
         let r = ChatTranscript.read(tree: t.tree, area: area)
-        #expect(r.turns.flatMap(\.blocks) == [.paragraph([Inline("City | Days")]), .paragraph([Inline("Lisbon | 2")])])
+        #expect(r.turns.flatMap(\.blocks) == [.table([["City", "Days"], ["Lisbon", "2"]])])
+        #expect(Markdown.render(ChatTranscript.document(r, assistantName: "ChatGPT")).contains("| City | Days |\n| --- | --- |\n| Lisbon | 2 |"))
     }
 
     @Test func userMessageClassesAreRecognized() {
@@ -314,8 +315,8 @@ struct ChatTranscriptTests {
         let code = t.add("AXGroup", block, subrole: "AXCodeStyleGroup")
         t.add("AXStaticText", code, text: "zip -r bag.zip clothes\n")
         let r = ChatTranscript.read(tree: t.tree, area: area)
-        #expect(r.turns.flatMap(\.blocks) == [.listItem(level: 0, ordered: false, [Inline("Pack light."), Inline("\n"), Inline("Bring a jacket.")]),
-                                               .code("zip -r bag.zip clothes")])
+        #expect(r.turns.flatMap(\.blocks) == [.listItem(level: 0, ordered: false, [Inline("Pack light.\nBring a jacket.")]),
+                                               .code("zip -r bag.zip clothes", language: "bash")])
     }
 }
 
@@ -379,5 +380,202 @@ struct WindowOpeningTests {
     @Test func aTallWindowKeepsItsTitleBarOnScreen() {
         let f = WindowOpening.frame(size: CGSize(width: 520, height: 1200), pointer: CGPoint(x: 10, y: 10), screens: [main], current: nil)
         #expect(f.maxY == main.visible.maxY)
+    }
+}
+
+/// One test per finding of Garo's 1.1.3 check (2026-11-10), with the structure from his reports
+/// and from the ChatGPT app's own page code.
+@Suite("1.1.3 re-check: what Garo's ChatGPT and Claude captures showed")
+struct RecheckTests {
+    private func markdown(_ t: Tree, _ area: Int, app: String = "ChatGPT") -> (ChatReading, String) {
+        let r = ChatTranscript.read(tree: t.tree, area: area)
+        return (r, Markdown.render(ChatTranscript.document(r, assistantName: app)))
+    }
+
+    @Test func theAppsOwnInterfaceTextIsLeftOut() {
+        var t = Tree()
+        let (_, area) = t.window()
+        let skip = t.add("AXLink", area, url: "#main")                     // ChatGPT's "Skip to content" link
+        t.add("AXStaticText", skip, text: "Skip to content")
+        let list = t.add("AXGroup", area)
+        t.p(list, "Plan a trip")
+        t.buttons(list, "Copy message", "Edit message")
+        t.p(list, "Sure, here's a plan.")
+        t.buttons(list, "Copy", "Good response", "Bad response")
+        t.add("AXHeading", area, level: 2)                                  // invisible, before the message box
+        t.add("AXStaticText", t.nodes.count - 1, text: "Latest response")
+        t.p(area, "ChatGPT can make mistakes. Check important info.", classes: [])
+        let (_, md) = markdown(t, area)
+        for ui in ["Skip to content", "Latest response", "can make mistakes"] { #expect(!md.contains(ui), "\(ui)") }
+        #expect(md.contains("Plan a trip") && md.contains("Sure, here's a plan."))
+    }
+
+    @Test func youSaidLabelsBecomeTheSpeakersAndArentRepeated() throws {
+        var t = Tree()
+        let (_, area) = t.window()
+        let list = t.add("AXGroup", area)
+        for i in 0..<4 {
+            t.add("AXHeading", list, level: 5, classes: ["sr-only"]); t.add("AXStaticText", t.nodes.count - 1, text: "You said:")
+            t.p(list, "Question \(i)")
+            t.buttons(list, "Copy message", "Edit message")
+            t.add("AXHeading", list, level: 6, classes: ["sr-only"]); t.add("AXStaticText", t.nodes.count - 1, text: "ChatGPT said:")
+            t.p(list, "Answer \(i)")
+            t.buttons(list, "Copy", "Good response", "Bad response")
+        }
+        let (r, md) = markdown(t, area)
+        #expect(r.rule == .labels)
+        try #require(r.userTurns == 4 && r.replyTurns == 4)
+        #expect(!md.contains("said:"), "only **You:** and **ChatGPT:**")
+        #expect(md.components(separatedBy: "**You:**").count - 1 == 4 && md.components(separatedBy: "**ChatGPT:**").count - 1 == 4)
+    }
+
+    @Test func characterReferencesAreDecoded() {
+        var t = Tree()
+        let (_, area) = t.window()
+        let p = t.add("AXGroup", area, classes: ["_Paragraph_xjxw3_2"])
+        t.add("AXStaticText", p, text: "Sales &amp; Marketing, it&#39;s &lt;3 &#x2014; &quot;done&quot;, see ")
+        let link = t.add("AXLink", p, url: "https://example.org/r?a=1&amp;b=2")
+        t.add("AXStaticText", link, text: "Q&amp;A")
+        let (r, md) = markdown(t, area)
+        #expect(r.turns.flatMap(\.blocks) == [.paragraph([Inline("Sales & Marketing, it's <3 — \"done\", see "),
+                                                          Inline("Q&A", link: "https://example.org/r?a=1&b=2")])])
+        #expect(!md.contains("&amp;") && !md.contains("&#39;"))
+        #expect(md.contains("(https://example.org/r?a=1&b=2)"))
+    }
+
+    @Test func noCharacterIsDroppedAndAddressesStayExact() {
+        let text = "Track utm_source and snake_case_name, fill in $___ and _this_, see https://example.org/p?utm_source=x&utm_medium=y_z now"
+        let md = Markdown.render(ExportDocument(blocks: [.paragraph([Inline(text)]),
+                                                         .paragraph([Inline("the page", link: "https://example.org/a_b?utm_source=x&k=_v")])],
+                                                source: .accessibility))
+        #expect(md.contains("utm_source and snake_case_name"), "underscores inside words need no escape")
+        #expect(md.contains("$\\_\\_\\_"), "a blank to fill in is kept, escaped")
+        #expect(md.contains("https://example.org/p?utm_source=x&utm_medium=y_z now"), "a web address is copied exactly")
+        #expect(md.contains("[the page](https://example.org/a_b?utm_source=x&k=_v)"))
+        let line = md.split(separator: "\n").first { $0.hasPrefix("Track") }.map(String.init) ?? ""
+        #expect(line.replacingOccurrences(of: "\\", with: "") == text, "removing the escapes gives back every character")
+    }
+
+    @Test func anAnalyzedPythonPanelIsAFencedCodeBlock() {
+        var t = Tree()
+        let (_, area) = t.window()
+        let list = t.add("AXGroup", area)
+        t.p(list, "Here is the analysis.")
+        let root = t.add("AXGroup", list, classes: ["_Root_fab4p_2"])          // ChatGPT's code panel
+        t.add("AXStaticText", root, text: "Analyzed")
+        let surface = t.add("AXGroup", root, classes: ["_Surface_fab4p_2"])
+        t.add("AXStaticText", surface, text: "Python")
+        let code = t.add("AXGroup", surface, classes: ["_CodeSurface_fab4p_2"])
+        for line in ["import pandas as pd", "df = pd.read_csv(\"sales_2026.csv\")", "print(df[\"total\"].sum())"] {
+            let l = t.add("AXGroup", code)
+            t.add("AXStaticText", l, text: line)
+        }
+        let bar = t.add("AXGroup", root, classes: ["_ActionBar_fab4p_2"])
+        t.buttons(bar, "Copy")
+        let (r, md) = markdown(t, area)
+        #expect(r.turns.flatMap(\.blocks).last == .code("import pandas as pd\ndf = pd.read_csv(\"sales_2026.csv\")\nprint(df[\"total\"].sum())", language: "python"))
+        #expect(md.contains("```python\nimport pandas as pd\ndf = pd.read_csv(\"sales_2026.csv\")\nprint(df[\"total\"].sum())\n```"))
+        #expect(!md.contains("Analyzed") && !md.contains("\n`\n"), "no label paragraphs, no stray backtick")
+    }
+
+    @Test func headingClassesGetHeadingMarks() {
+        var t = Tree()
+        let (_, area) = t.window()
+        let h = t.add("AXGroup", area, classes: ["_Heading_xjxw3_2"])
+        t.add("AXStaticText", h, text: "Results")
+        let h2 = t.add("AXGroup", area, classes: ["_Heading_xjxw3_2"])
+        let inner = t.add("AXHeading", h2, level: 2)
+        t.add("AXStaticText", inner, text: "Next steps")
+        t.p(area, "Body text.")
+        let (_, md) = markdown(t, area)
+        #expect(md.contains("### Results") && md.contains("## Next steps"))
+    }
+
+    @Test func aChatGPTTableIsAMarkdownTable() {
+        var t = Tree()
+        let (_, area) = t.window()
+        let box = t.add("AXGroup", area, classes: ["_TableContainer_xjxw3_2"])
+        let table = t.add("AXTable", box, classes: ["_Table_xjxw3_2"])
+        for (i, row) in [["Channel", "Revenue | share"], ["Brand Analytics", "$1,204"]].enumerated() {
+            let r = t.add("AXRow", table)
+            for c in row {
+                let cell = t.add("AXCell", r, classes: [i == 0 ? "_TableHeaderCell_xjxw3_2" : "_TableCell_xjxw3_2"])
+                t.add("AXStaticText", cell, text: c)
+            }
+        }
+        let (_, md) = markdown(t, area)
+        #expect(md.contains("| Channel | Revenue \\| share |\n| --- | --- |\n| Brand Analytics | $1,204 |"))
+    }
+
+    @Test func separateElementsDontRunTogether() {
+        var t = Tree()
+        let (_, area) = t.window()
+        let p = t.add("AXGroup", area, classes: ["_Paragraph_xjxw3_2"])
+        t.add("AXStaticText", p, text: "Open ")
+        let a = t.add("AXGroup", p); t.add("AXStaticText", a, text: "Brand Analytics")
+        let b = t.add("AXGroup", p); t.add("AXStaticText", b, text: "Export")
+        t.add("AXStaticText", p, text: ", then save.")
+        let (_, md) = markdown(t, area)
+        #expect(md.contains("Open Brand Analytics Export, then save."))
+    }
+
+    @Test func claudesNavigationAndKeyboardHintsAreLeftOut() {
+        var t = Tree()
+        let (_, area) = t.window()
+        let nav = t.add("AXGroup", area, subrole: "AXLandmarkNavigation")
+        t.add("AXStaticText", nav, text: "Claude Navigation")
+        let status = t.add("AXGroup", area, subrole: "AXApplicationStatus")
+        t.add("AXStaticText", status, text: "Newest document available to open — press Tab to move to it")
+        t.p(area, "Newest document available to open — press Tab to move to it", classes: [])
+        t.p(area, "The real first message", classes: [])
+        let (r, md) = markdown(t, area, app: "Claude")
+        #expect(!md.contains("Navigation") && !md.contains("press Tab"))
+        #expect(AppCheckPreview.first(r).hasPrefix("The real first message"))
+    }
+
+    @Test func aRepeatedSentenceIsKeptOnce() {
+        var t = Tree()
+        let (_, area) = t.window()
+        t.p(area, "Let me know if you want a shorter version.", classes: [])
+        t.p(area, "Let me know if you want a shorter version.", classes: [])
+        t.p(area, "Glad that helped, enjoy the trip to Lisbon.Glad that helped, enjoy the trip to Lisbon.", classes: [])
+        let blocks = ChatTranscript.read(tree: t.tree, area: area).turns.flatMap(\.blocks)
+        #expect(blocks == [.paragraph([Inline("Let me know if you want a shorter version.")]),
+                           .paragraph([Inline("Glad that helped, enjoy the trip to Lisbon.")])])
+    }
+
+    @Test func theChatGPTAppIsNotABrowserButBrowsersStayExcluded() {
+        #expect(!BrowserCheck.isRealBrowser(bundleID: "com.openai.codex", opensWebLinks: true, opensWebPageFiles: false))
+        #expect(!BrowserCheck.isRealBrowser(bundleID: "com.anthropic.claudefordesktop", opensWebLinks: false, opensWebPageFiles: false))
+        for id in ["com.apple.Safari", "com.google.Chrome", "company.thebrowser.Browser", "org.mozilla.firefox", "com.google.Chrome.canary"] {
+            #expect(BrowserCheck.isRealBrowser(bundleID: id, opensWebLinks: false, opensWebPageFiles: false), "\(id)")
+        }
+        #expect(BrowserCheck.isRealBrowser(bundleID: "com.example.newbrowser", opensWebLinks: true, opensWebPageFiles: true))
+    }
+
+    @Test func theCheckIsWordedForAnyApp() {
+        let chat = ChatReading(turns: [ChatTurn(speaker: .user, blocks: [.paragraph([Inline("Hi")])]),
+                                       ChatTurn(speaker: .assistant, blocks: [.paragraph([Inline("Hello")])])], rule: .buttons)
+        let plain = ChatReading(turns: [ChatTurn(speaker: nil, blocks: [.paragraph([Inline("Notes")])])], rule: .none)
+        let c = CheckWording(verdict: .beyondScreen, appName: "ChatGPT", screens: 6.5, reading: chat)
+        #expect(c.headline.contains("this chat") && c.firstLabel == "First message" && c.speakers?.contains("1 of yours") == true)
+        let n = CheckWording(verdict: .beyondScreen, appName: "Notion", screens: 6.5, reading: plain)
+        #expect(n.firstLabel == "First text" && n.lastLabel == "Last text" && n.speakers == nil)
+        for words in [n.headline, n.explanation] { #expect(!words.contains("chat") && !words.contains("message"), "\(words)") }
+        let a = CheckWording(verdict: .aboutAScreenful, appName: "Notion", screens: 0.8, reading: plain)
+        #expect(!a.explanation.contains("chat"))
+    }
+
+    @Test func theCheckShowsYourFirstMessageNotATitle() {
+        let r = ChatReading(turns: [ChatTurn(speaker: nil, blocks: [.paragraph([Inline("Lisbon trip")])]),
+                                    ChatTurn(speaker: .user, blocks: [.paragraph([Inline("Plan a trip")])])], rule: .labels)
+        #expect(CheckWording.firstTurn(r)?.speaker == .user)
+    }
+}
+
+/// The first text Check This App shows (its preview, minus the speaker).
+enum AppCheckPreview {
+    static func first(_ r: ChatReading) -> String {
+        CheckWording.firstTurn(r).map { $0.blocks.map(\.plainText).joined(separator: " ") } ?? ""
     }
 }
