@@ -225,7 +225,7 @@ public enum PointerReset {
     }
 }
 
-/// The version line at the top of the menu and in Settings, from the app's own Info.plist.
+/// The version line at the bottom of Settings, from the app's own Info.plist.
 public enum AppVersion {
     /// "Tallshot 1.1.1", from `CFBundleShortVersionString`; "Tallshot" if it's missing.
     public static func title(info: [String: Any]?) -> String {

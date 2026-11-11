@@ -8,6 +8,10 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
     @State private var tab = 0
 
+    /// "Tallshot 1.1.3" at the bottom of Settings (the only place the version shows), read from this
+    /// app's own Info.plist, so it can't go out of date.
+    static var versionLine: String { AppVersion.title(info: Bundle.main.infoDictionary) }
+
     var body: some View {
         VStack(spacing: 0) {
             Picker("", selection: $tab) {
@@ -27,7 +31,7 @@ struct SettingsView: View {
                 }
             }
             .padding(20)
-            Text(AppVersion.title(info: Bundle.main.infoDictionary)).font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
+            Text(Self.versionLine).font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
         }
         .frame(width: 520)
     }

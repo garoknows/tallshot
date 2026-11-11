@@ -39,7 +39,7 @@ Each step turns green by itself. Then click **Run Self-Test**: Tallshot captures
 - **Capture from Top** in the menu scrolls to the top first. From the menu, Tallshot captures the front window; with a hotkey, the window under the pointer.
 - **Terminals and documents give you their text.** When the pane is a terminal, Notes, TextEdit or a code editor that shares all its text with macOS, Tallshot copies the text as Markdown and saves it (plus PDF and Word if those are on) without scrolling or taking pictures. Browsers and chat apps share only what's on screen, so they always get a scrolling screenshot. The pop-up says which one ran.
 - **Capture as Image** in the menu always takes a scrolling screenshot, even of a terminal.
-- The top line of the menu shows which version you have (also at the bottom of Settings). **Release Notes…** opens the releases page in your browser.
+- The bottom of Settings shows which version you have. **Release Notes…** in the menu opens the releases page in your browser.
 - Esc, a click, a key or moving the mouse stops it and keeps what was captured.
 - Settings (menu → Settings…):
   - **General:** the hotkeys, including an optional one for Capture as Image (with a warning under the field only when macOS refuses the keys or uses them for its own shortcut), and a **Test Hotkey** button that confirms a hotkey reaches Tallshot. Every hotkey row has **Clear** (the menu works without hotkeys), the main Capture hotkey also has **Reset to Default**, and keys another row already uses aren't saved; When an app shares its text (Copy the text, no scrolling, or Always take a scrolling screenshot); Capture (pane under the pointer, or the whole window); Open at login.

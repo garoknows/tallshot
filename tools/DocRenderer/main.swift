@@ -95,8 +95,6 @@ struct MenuPicture: View {
             .padding(.horizontal, 10).frame(height: 24)
             .background(Color.white.opacity(0.85))
             VStack(alignment: .leading, spacing: 2) {
-                row("Tallshot 1.1.2", nil).foregroundStyle(.secondary)
-                Divider().padding(.vertical, 3)
                 row("Capture Now", "⌃⌥⇧⌘T")
                 row("Capture from Top", nil)
                 row("Capture as Image", nil)
