@@ -35,5 +35,9 @@ if grep -n -E "$FORBIDDEN" "$SRC/SharedTextReader.swift" | grep -v '^\S*:\s*///'
   bad "Text capture does more than read:"; grep -n -E "$FORBIDDEN" "$SRC/SharedTextReader.swift"
 else pass "Text capture only reads (no scrolling, events, pointer moves or changes)"; fi
 
+if grep -n -E "$FORBIDDEN|\.write\(|FileManager" "$SRC/AccessibilityProbe.swift" | grep -v '^\S*:\s*///' | grep -v -E '^\S*:\s*//' | grep -q .; then
+  bad "The accessibility probe does more than read:"; grep -n -E "$FORBIDDEN" "$SRC/AccessibilityProbe.swift"
+else pass "The accessibility probe only reads (no scrolling, events, pointer moves, changes or files)"; fi
+
 [ $FAIL = 0 ] && echo "Capture rules hold." || echo "Capture rules FAILED."
 exit $FAIL
