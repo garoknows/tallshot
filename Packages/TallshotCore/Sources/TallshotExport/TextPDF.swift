@@ -38,6 +38,7 @@ public enum TextPDF {
         let body = CTFontCreateWithName("Helvetica" as CFString, 11, nil)
         let bold = CTFontCreateWithName("Helvetica-Bold" as CFString, 15, nil)
         let mono = CTFontCreateWithName("Menlo-Regular" as CFString, 8.5, nil)
+        let speaker = CTFontCreateWithName("Helvetica-Bold" as CFString, 11, nil)
         let font = NSAttributedString.Key(kCTFontAttributeName as String)
         func add(_ s: String, _ f: CTFont) { out.append(NSAttributedString(string: s + "\n", attributes: [font: f])) }
         for block in doc.blocks {
@@ -47,6 +48,7 @@ public enum TextPDF {
             case .listItem(let level, _, let spans):
                 add(String(repeating: "    ", count: max(0, level)) + "• " + spans.map(\.text).joined(), body)
             case .code(let c): add(c, mono)
+            case .speaker(let name): add("\n" + name + ":", speaker)
             }
         }
         if out.length == 0 { out.append(NSAttributedString(string: " ", attributes: [font: body])) }

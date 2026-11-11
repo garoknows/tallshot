@@ -79,7 +79,18 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup).labelsHidden()
             }
-            hint("Terminals, Notes, TextEdit and many code editors share all their text, so Tallshot can save and copy it as Markdown without scrolling (plus PDF and Word if those are on). Browsers and chat apps share only what's on screen, so they always get a scrolling screenshot.")
+            hint("Terminals, Notes, TextEdit and many code editors share all their text, so Tallshot can save and copy it as Markdown without scrolling (plus PDF and Word if those are on). Browsers and most chat apps share only what's on screen, so they get a scrolling screenshot.")
+            row("Chat apps") {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(ChatApps.rows(checked: settings.checkedApps)) { r in
+                        Text("\(r.name): \(r.text ? "copies the whole conversation as text" : "scrolling screenshot") (\(r.source))")
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button("Forget Checked Apps") { settings.forgetCheckedApps() }
+                        .disabled(settings.checkedApps.isEmpty)
+                }
+            }
+            hint("The ChatGPT app keeps the whole conversation, so Tallshot copies it as text, with You and ChatGPT before each turn. To find out about another chat app, click its window, then choose Troubleshooting → Check This App… in the menu. Tallshot remembers your answer; Forget Checked Apps goes back to the built-in ones.")
             Divider()
             row("Capture") {
                 Picker("", selection: $settings.captureMode) {

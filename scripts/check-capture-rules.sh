@@ -3,8 +3,9 @@
 #   1. A real "mouse moved" event is made in one place only (LiveDriver.movePointer), and that is
 #      used only to restore the pointer after the last picture, never while pictures are taken.
 #      (1.1.0 and 1.1.1 also used it to park the pointer, and the self-test failed.)
-#   2. A text capture (SharedTextReader) only reads: it never scrolls, moves the pointer, posts
-#      events or changes anything in the app.
+#   2. A text capture (SharedTextReader, and ChatTextReader with TreeWalker for chat apps) and
+#      Check This App only read: they never scroll, move the pointer, post events, change
+#      anything in the app or write files.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/App/Sources"
@@ -35,9 +36,22 @@ if grep -n -E "$FORBIDDEN" "$SRC/SharedTextReader.swift" | grep -v '^\S*:\s*///'
   bad "Text capture does more than read:"; grep -n -E "$FORBIDDEN" "$SRC/SharedTextReader.swift"
 else pass "Text capture only reads (no scrolling, events, pointer moves or changes)"; fi
 
-if grep -n -E "$FORBIDDEN|\.write\(|FileManager" "$SRC/AccessibilityProbe.swift" | grep -v '^\S*:\s*///' | grep -v -E '^\S*:\s*//' | grep -q .; then
-  bad "The accessibility probe does more than read:"; grep -n -E "$FORBIDDEN" "$SRC/AccessibilityProbe.swift"
-else pass "The accessibility probe only reads (no scrolling, events, pointer moves, changes or files)"; fi
+# Check This App and a chat app's text capture: the tree walker, the chat reader and the check.
+# Besides direct calls, nothing that scrolls on their behalf (the capture driver, the engine,
+# the pointer). The only change they make is the accessibility switch every capture turns on
+# (AccessibilitySwitch, in TargetFinder.swift), put back when they finish.
+CAPTURE='LiveDriver|CaptureSession|AppModel\.run|\bSelf\.run\(|PointerParking|LivePointer|movePointer|jumpPointer|WindowCapturer'
+for F in TreeWalker.swift ChatTextReader.swift AppCheck.swift; do
+  [ -f "$SRC/$F" ] || { bad "$F is missing"; continue; }
+  if grep -n -i -E "$FORBIDDEN|$CAPTURE|\.write\(|FileManager" "$SRC/$F" | grep -v '^\S*:\s*///' | grep -v -E '^\S*:\s*//' | grep -q .; then
+    bad "$F does more than read:"; grep -n -i -E "$FORBIDDEN|$CAPTURE|\.write\(|FileManager" "$SRC/$F"
+  else pass "$F only reads (no scrolling, events, pointer moves, changes or files)"; fi
+done
+# In a capture, a chat text capture that worked returns before any scrolling starts.
+BRANCH=$(awk '/let chat = await ChatTextReader.read/{f=1} f{print} f&&/^            }$/{exit}' "$SRC/AppModel.swift")
+if grep -q 'await deliverText(doc' <<< "$BRANCH" && grep -A1 'await deliverText(doc' <<< "$BRANCH" | grep -q '^ *return$'; then
+  pass "A chat text capture returns before the scrolling capture"
+else bad "The chat text capture doesn't return before the scrolling capture"; fi
 
 [ $FAIL = 0 ] && echo "Capture rules hold." || echo "Capture rules FAILED."
 exit $FAIL

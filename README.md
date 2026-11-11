@@ -18,7 +18,8 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 
 - **Sticky headers and chat input boxes appear once**, not on every strip. Tallshot spots the parts that never move and leaves them out of the line-up.
 - **It starts where you are.** To get the whole thing, use **Capture from Top** in the menu (you can give it its own hotkey in Settings).
-- **Terminals and documents: just the text.** When the pane is a terminal (Ghostty, Terminal), Notes, TextEdit or a code editor that shares all its text with macOS, Tallshot copies that text as Markdown and saves it (plus PDF and Word if those are on), with no scrolling and no pictures. It does this only when the app shows its text is complete, scrolled-away part included. Browsers and chat apps share only what's on screen, so they always get a scrolling screenshot. **Capture as Image** in the menu (it can have its own hotkey) always takes the screenshot, and Settings → General → When an app shares its text → Always take a scrolling screenshot turns text captures off. The pop-up says which one ran.
+- **Terminals and documents: just the text.** When the pane is a terminal (Ghostty, Terminal), Notes, TextEdit or a code editor that shares all its text with macOS, Tallshot copies that text as Markdown and saves it (plus PDF and Word if those are on), with no scrolling and no pictures. It does this only when the app shows its text is complete, scrolled-away part included. Browsers and most chat apps share only what's on screen, so they get a scrolling screenshot. **Capture as Image** in the menu (it can have its own hotkey) always takes the screenshot, and Settings → General → When an app shares its text → Always take a scrolling screenshot turns text captures off. The pop-up says which one ran.
+- **The ChatGPT app: the whole conversation as text.** The ChatGPT app keeps every message of a chat, scrolled-away ones included, so pointing at it and pressing the hotkey copies the whole conversation as Markdown, with **You** and **ChatGPT** before each turn and the headings, lists, links and code blocks kept, with no scrolling. Other chat apps, such as Claude, keep only the messages near the screen, so they get a scrolling screenshot. To find out about another chat app, click its window and choose **Troubleshooting → Check This App…** in the menu; Tallshot remembers your answer (Settings → General → Chat apps).
 - **Stop any time:** press Esc, or touch the mouse or keyboard. Tallshot keeps what it captured so far.
 - **Very long pages** stop at 30,000 pixels tall or 60 seconds (both adjustable). Very wide captures also stop at 50 million pixels in all, to keep memory use well under 1 GB.
 - **Browsers and chat apps.** In Chrome, Arc, Safari and Electron apps Tallshot finds the pane you point at, leaves out the browser's toolbar and the app's sidebar, and handles the floating buttons and message box of chat apps. **Capture from Top** waits for older messages to load, so you can export a whole chat.
@@ -26,7 +27,7 @@ Tallshot is a free, open-source Mac menu bar app that turns any scrolling window
 - **File names that say what's in them.** For example `Arc - example.com - Chat test - 2026-11-07 at 14.05 - Tallshot.png`: the app, the site's domain in a browser, the window or page title, the date and time. Nothing goes in from a password field that has the keyboard or a Chrome Incognito window. The title and domain go only in the file names, not inside the files (the PDF's title is just "Tallshot capture"); the one exception is the Markdown file's link to the PNG beside it. Settings → Output → File names → Date only gives `2026-11-07 at 14.05.22 - Tallshot.png`.
 - **It measures every step.** If an app scrolls further than asked, Tallshot asks for less and walks back until the pictures overlap again. If a capture stops early, the pop-up says so and why.
 
-<p align="center"><img src="docs/images/menu.png" width="420" alt="The Tallshot menu: Capture Now, Capture from Top, Capture as Image, Settings, Run Self-Test, Release Notes, Quit"></p>
+<p align="center"><img src="docs/images/menu.png" width="520" alt="The Tallshot menu: Capture Now, Capture from Top, Capture as Image, Settings, Troubleshooting (open, with Run Self-Test and Check This App), Release Notes, Quit"></p>
 
 ### From Raycast, Shortcuts or a script
 
@@ -69,7 +70,7 @@ Tallshot can see the screen and send scroll events, so these rules matter. Each 
 - **Text recognition happens on your Mac** (Apple's Vision framework). No text or image is sent anywhere.
 - **Captures only when you ask.** Nothing runs in the background. The screen is read only between the hotkey and the end of that capture.
 - **Protected windows stay protected.** Windows macOS marks as private are left as macOS returns them.
-- **No analytics, no crash reporting, no account.** Settings are the only thing stored.
+- **No analytics, no crash reporting, no account.** Settings are the only thing stored (including, for chat apps you checked, the app's name and your answer; never chat text).
 - **Diagnostics only if you ask.** An optional setting (off by default) saves a report folder when a capture stops early, next to the capture or in a folder you choose, for you to share if you want. Nothing is ever sent.
 
 ## Build and test

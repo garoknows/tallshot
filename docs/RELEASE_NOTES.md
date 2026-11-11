@@ -2,8 +2,15 @@ Tallshot turns any scrolling window into one tall screenshot with a single hotke
 
 Signed with a Developer ID and notarized by Apple, so it opens with no warning.
 
+**New in 1.1.3**
+
+- **The ChatGPT app: the whole conversation as text.** Point at a chat in the ChatGPT app and press the hotkey: Tallshot copies every message, scrolled-away ones included, as Markdown with **You** and **ChatGPT** before each turn, keeping headings, lists, links and code blocks, with no scrolling. The Claude app keeps only the messages near the screen, so it still gets a scrolling screenshot. **Capture as Image** always takes the screenshot.
+- **Check This App…** (menu → Troubleshooting) finds out whether the app that was in front keeps its whole conversation. It shows the first and last message it found; you confirm, and Tallshot remembers the answer for that app. Settings → General → Chat apps lists the answers, with **Forget Checked Apps**.
+
 **Changed in 1.1.3**
 
+- **A Troubleshooting submenu** holds Run Self-Test and Check This App….
+- **Tallshot's windows always open in front**, on the display with the pointer (the check's result, the self-test, Settings, setup). Before, a window could open behind the app you were using.
 - **The version shows only at the bottom of Settings.** The menu starts with Capture Now; the version line is gone from its top.
 - **The three hotkey rows in Settings behave alike.** Each has Clear, the main Capture hotkey also has Reset to Default, and keys another row already uses aren't saved.
 
@@ -18,7 +25,7 @@ Signed with a Developer ID and notarized by Apple, so it opens with no warning.
 **New in 1.1**
 
 - **Text captures.** Point at Ghostty, Terminal, Notes, TextEdit or a code editor that shares all its text with macOS and press the hotkey. Tallshot copies the whole text as Markdown and saves it (plus PDF and Word if those are on), with no scrolling and no screenshots.
-- **Only when the text is complete.** Browsers and chat apps share only what's on screen, so they still get a scrolling screenshot.
+- **Only when the text is complete.** Browsers and most chat apps share only what's on screen, so they still get a scrolling screenshot.
 - **Capture as Image** in the menu (optional hotkey, `tallshot://capture?as=image`) always takes the scrolling screenshot. Settings → General → When an app shares its text chooses the default.
 - **The pop-up says which mode ran.** The bottom of Settings shows the version; **Release Notes…** in the menu opens this page in your browser.
 - **The pointer never stays a crosshair** after a capture (Ghostty shows one while Option, part of the hotkey, is held).

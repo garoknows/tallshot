@@ -67,10 +67,10 @@ final class SelfTest {
     func run() {
         guard Permissions.allGranted else { WindowRouter.shared.showSetup(); return }
         guard state.phase != .running else { return }
+        let isNew = window == nil
         let w = window ?? makeWindow()
         window = w
-        NSApp.activate(ignoringOtherApps: true)
-        w.makeKeyAndOrderFront(nil)
+        WindowRouter.present(w, isNew: isNew)
         state.phase = .running
         state.via = "menu"
         Task { await runCapture(viaHotkey: false) }
@@ -135,7 +135,6 @@ final class SelfTest {
         status.frame = NSRect(x: 0, y: pageHeight, width: width, height: panel)
         root.addSubview(status)
         w.contentView = root
-        w.center()
         scrollView = sv
         return w
     }
@@ -170,10 +169,7 @@ final class SelfTest {
         } catch {
             state.phase = .failed("Capture failed: \(error.localizedDescription)")
         }
-        if !viaHotkey {
-            NSApp.activate(ignoringOtherApps: true)
-            w.makeKeyAndOrderFront(nil)
-        }
+        if !viaHotkey { WindowRouter.present(w, move: false) }
     }
 
     func verdict(_ r: CaptureResult, scale: CGFloat, target: CaptureTarget, seconds: Double) -> SelfTestState.Phase {

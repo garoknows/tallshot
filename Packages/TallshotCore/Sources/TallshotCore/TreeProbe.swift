@@ -1,8 +1,8 @@
 import CoreGraphics
 
-/// One element found while walking an app's accessibility tree, for the accessibility probe.
-/// Only its shape is kept: role, frame, how much text it holds, its class names and its parent,
-/// never the text itself.
+/// One element found while walking an app's accessibility tree, for Check This App and for a
+/// chat app's text capture. The check's copied report uses only its shape (role, frame, how much
+/// text it holds, class names, parent), never the text, labels or links.
 public struct ProbeNode: Sendable, Equatable {
     public var role: String
     public var frame: CGRect?
@@ -12,9 +12,24 @@ public struct ProbeNode: Sendable, Equatable {
     public var classes: [String]
     /// The parent's index in the list (parents always come before their children), nil for the root.
     public var parent: Int?
+    /// A static text's value.
+    public var text: String?
+    /// A button's or link's label (its description, else its title).
+    public var label: String?
+    /// A link's address.
+    public var url: String?
+    /// A heading's level (1 to 6).
+    public var level: Int?
+    public var subrole: String?
+    public var roleDescription: String?
 
-    public init(role: String, frame: CGRect?, textLength: Int = 0, classes: [String] = [], parent: Int? = nil) {
-        self.role = role; self.frame = frame; self.textLength = textLength; self.classes = classes; self.parent = parent
+    public init(role: String, frame: CGRect?, textLength: Int = 0, classes: [String] = [], parent: Int? = nil,
+                text: String? = nil, label: String? = nil, url: String? = nil, level: Int? = nil,
+                subrole: String? = nil, roleDescription: String? = nil) {
+        self.role = role; self.frame = frame; self.classes = classes; self.parent = parent
+        self.textLength = textLength == 0 ? (text?.count ?? 0) : textLength
+        self.text = text; self.label = label; self.url = url; self.level = level
+        self.subrole = subrole; self.roleDescription = roleDescription
     }
 }
 
@@ -42,13 +57,21 @@ public struct ProbeTree: Sendable {
         return out
     }
 
-    /// The conversation's element: the scroll area holding the most text (not a toolbar, sidebar
-    /// or message box, which hold little); else the web page holding the most; else the root.
-    public func messageArea() -> Int {
-        func best(_ role: String) -> Int? {
-            nodes.indices.filter { nodes[$0].role == role && textBelow[$0] > 0 }.max { textBelow[$0] < textBelow[$1] }
+    /// The conversation's element. With `point` (the middle of the pane being captured): the
+    /// scroll area under it holding the most text. Otherwise, among the scroll areas holding at
+    /// least 200 characters or a tenth of the most text any holds, the widest (a sidebar of chat
+    /// titles is narrow, a toolbar holds little), then the one with the most text. Else the web page holding
+    /// the most text, else the root.
+    public func messageArea(near point: CGPoint? = nil) -> Int {
+        func mostText(_ c: [Int]) -> Int? { c.max { textBelow[$0] < textBelow[$1] } }
+        let areas = nodes.indices.filter { nodes[$0].role == "AXScrollArea" && textBelow[$0] > 0 }
+        if let point, let i = mostText(areas.filter { nodes[$0].frame?.contains(point) ?? false }) { return i }
+        if let most = areas.map({ textBelow[$0] }).max() {
+            let big = areas.filter { textBelow[$0] >= min(200, most / 10) }
+            func width(_ i: Int) -> CGFloat { nodes[i].frame.map { ($0.width / 8).rounded() } ?? 0 }
+            if let i = big.max(by: { width($0) != width($1) ? width($0) < width($1) : textBelow[$0] < textBelow[$1] }) { return i }
         }
-        return best("AXScrollArea") ?? best("AXWebArea") ?? 0
+        return mostText(nodes.indices.filter { nodes[$0].role == "AXWebArea" && textBelow[$0] > 0 }) ?? 0
     }
 
     /// The element whose children repeat once per message: inside `area`, the one with the most
@@ -91,12 +114,17 @@ public struct ProbeReport: Sendable, Equatable {
     public var headings: Int, lists: Int, listItems: Int, links: Int, codeBlocks: Int
     public var cutShort: Bool
     public var verdict: Verdict
+    /// How your messages were told from the replies, and how many of each (nil: not read).
+    public var speakers: (rule: SpeakerRule, yours: Int, replies: Int)?
+    /// Buttons with the labels that mark a turn: after yours ("Copy message", "Edit message")
+    /// and after a reply ("Good response", "Bad response"...). Only these app labels are counted.
+    public var userButtons: Int = 0, replyButtons: Int = 0
 
     public static func == (a: ProbeReport, b: ProbeReport) -> Bool { a.text == b.text }
 
     /// `area`: the conversation's element; `visible`: its box on screen, in points.
     public static func make(tree: ProbeTree, area: Int, visible: CGRect, appName: String, bundleID: String,
-                            settledAfter: Int, cutShort: Bool) -> ProbeReport {
+                            settledAfter: Int, cutShort: Bool, reading: ChatReading? = nil) -> ProbeReport {
         let inside = tree.inOrder(from: area)
         let chars = tree.textBelow[area]
         let capacity = max(1, Double(visible.width * visible.height) / pointsPerCharacter)
@@ -105,24 +133,32 @@ public struct ProbeReport: Sendable, Equatable {
         var counts: [String: Int] = [:]
         for m in msgs { for c in Set(tree.nodes[m].classes) where !c.isEmpty && c.count <= 40 { counts[c, default: 0] += 1 } }
         let common = counts.filter { Double($0.value) >= Double(msgs.count) * 0.8 }.keys.sorted()
-        let varying = counts.filter { Double($0.value) >= Double(msgs.count) * 0.2 && Double($0.value) < Double(msgs.count) * 0.8 }
+        // Classes on some messages (the speaker's mark can be on only a few of them), not on most.
+        let varying = counts.filter { $0.value >= 2 && Double($0.value) < Double(msgs.count) * 0.8 }
             .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(12).map { (name: $0.key, count: $0.value) }
         func count(_ role: String) -> Int { inside.filter { tree.nodes[$0].role == role }.count }
         let code = inside.filter { i in tree.nodes[i].role == "AXCodeStyleGroup" || tree.nodes[i].classes.contains { $0 == "code" || $0.hasPrefix("language-") } }.count
         let verdict: Verdict = chars == 0 ? .noText : (screens > 1.5 ? .beyondScreen : .aboutAScreenful)
-        return ProbeReport(appName: appName, bundleID: bundleID, areaRole: tree.nodes[area].role, elements: tree.nodes.count,
-                           settledAfter: settledAfter, characters: chars, screenfuls: screens, messages: msgs.count,
-                           messageClasses: Array(common.prefix(12)), varyingClasses: varying,
-                           headings: count("AXHeading"), lists: count("AXList"), listItems: count("AXListItem"),
-                           links: count("AXLink"), codeBlocks: code, cutShort: cutShort, verdict: verdict)
+        var r = ProbeReport(appName: appName, bundleID: bundleID, areaRole: tree.nodes[area].role, elements: tree.nodes.count,
+                            settledAfter: settledAfter, characters: chars, screenfuls: screens, messages: msgs.count,
+                            messageClasses: Array(common.prefix(12)), varyingClasses: Array(varying),
+                            headings: count("AXHeading"), lists: count("AXList"), listItems: count("AXListItem"),
+                            links: count("AXLink"), codeBlocks: code, cutShort: cutShort, verdict: verdict)
+        r.speakers = reading.map { (rule: $0.rule, yours: $0.userTurns, replies: $0.replyTurns) }
+        let labels = inside.filter { ChatTranscript.controlRoles.contains(tree.nodes[$0].role) }
+            .map { ChatTranscript.normalized(tree.nodes[$0].label ?? "") }
+        r.userButtons = labels.filter(ChatTranscript.userButtonLabels.contains).count
+        r.replyButtons = labels.filter(ChatTranscript.replyButtonLabels.contains).count
+        return r
     }
 
     /// The report as plain text, for the clipboard. Holds no text from the app: only counts and
     /// the page's class names.
     public var text: String {
         func f(_ d: Double) -> String { let r = (d * 10).rounded() / 10; return r == r.rounded() ? "\(Int(r))" : "\(r)" }
+        let who = speakers.map { "\($0.rule.note); \($0.yours) of yours, \($0.replies) replies" } ?? "not read"
         return [
-            "Tallshot accessibility probe 2",
+            "Tallshot app check (probe 3)",
             "App: \(appName) (\(bundleID)); conversation element: \(areaRole)",
             "Verdict: \(verdict.rawValue)",
             "Elements: \(elements)\(cutShort ? " (stopped at the limit: lower bounds)" : ""); the tree stopped growing after \(settledAfter) ms",
@@ -131,6 +167,8 @@ public struct ProbeReport: Sendable, Equatable {
             "Classes on most messages: \(messageClasses.isEmpty ? "none" : messageClasses.joined(separator: " "))",
             "Classes on some messages (speaker?): \(varyingClasses.isEmpty ? "none" : varyingClasses.map { "\($0.name) ×\($0.count)" }.joined(separator: ", "))",
             "Structure: \(headings) headings, \(lists) lists, \(listItems) list items, \(links) links, \(codeBlocks) code blocks",
+            "Turn buttons: \(userButtons) after yours (Copy/Edit message), \(replyButtons) after replies (Good/Bad response...)",
+            "Speaker labels: \(who)",
         ].joined(separator: "\n")
     }
 }

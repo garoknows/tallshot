@@ -15,12 +15,15 @@ public enum Block: Equatable, Hashable, Sendable {
     /// `level` 0 is the outermost list.
     case listItem(level: Int, ordered: Bool, [Inline])
     case code(String)
+    /// Who says what follows, in a chat ("You", "ChatGPT").
+    case speaker(String)
 
     /// The plain words, for comparing and searching.
     public var plainText: String {
         switch self {
         case .heading(_, let s), .paragraph(let s), .listItem(_, _, let s): s.map(\.text).joined()
         case .code(let c): c
+        case .speaker(let name): name
         }
     }
 }
@@ -74,6 +77,8 @@ public enum Markdown {
                     .map { line in line.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0 }.max() ?? 0
                 let fence = String(repeating: "`", count: max(3, longest + 1))
                 out.append(fence); out.append(text); out.append(fence)
+            case .speaker(let name):
+                out.append("**\(escape(name)):**")
             }
             previousWasList = isList
         }

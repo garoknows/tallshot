@@ -72,6 +72,7 @@ final class AppModel: ObservableObject {
         // A time limit for every accessibility question Tallshot asks another app, so one that has
         // stopped responding can't hold Tallshot up for long (macOS's default is 6 seconds).
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
+        FrontApp.shared.start()
         registerHotkeys()
         if !Permissions.allGranted || !settings.setupShown { WindowRouter.shared.showSetup() }
     }
@@ -172,13 +173,18 @@ final class AppModel: ObservableObject {
         switch url.host {
         case "capture": capture(fromTop: fromTop, asImage: asImage)
         case "selftest", "self-test": SelfTest.shared.run()
-        case "probe":
-            guard !isCapturing, Permissions.allGranted else { return }
-            isCapturing = true
-            Task { await AccessibilityProbe.run(); isCapturing = false }
+        case "check", "probe": checkFrontApp()
         case "settings": WindowRouter.shared.showSettings()
         default: break
         }
+    }
+
+    /// Troubleshooting → Check This App…: the app that was in front before the menu opened.
+    func checkFrontApp() {
+        guard !isCapturing else { return }
+        guard Permissions.allGranted else { WindowRouter.shared.showSetup(); return }
+        isCapturing = true
+        Task { await AppCheck.run(pid: FrontApp.shared.pid); isCapturing = false }
     }
 
     /// One capture: find the area under the pointer. If the app shares the pane's whole text (and
@@ -214,7 +220,18 @@ final class AppModel: ObservableObject {
             ? CaptureName.descriptive(TargetFinder.nameFacts(for: target), date: Date())
             : CaptureName.plain(date: Date())
         var mode = asImage ? "Scrolling screenshot (Capture as Image)." : "Scrolling screenshot."
-        if !asImage && settings.textCapture == .copyText {
+        if !asImage && settings.textCapture == .copyText && ChatApps.usesText(bundleID: target.bundleID, checked: settings.checkedApps) {
+            // A chat app that keeps the whole conversation: read it all, with who said what.
+            let chat = await ChatTextReader.read(target)
+            if let doc = chat.document, let reading = chat.reading {
+                RegionFlash.show(target.region, seconds: 0.5)
+                var line = "Text capture: the whole conversation, read from \(target.appName) with no scrolling."
+                if reading.rule == .none { line += " It doesn't show who said what, so there are no speaker labels." }
+                await deliverText(doc, target: target, baseName: baseName, modeLine: line)
+                return
+            }
+            if let why = chat.why { mode = "Scrolling screenshot: \(why)" }
+        } else if !asImage && settings.textCapture == .copyText {
             let shared = SharedTextReader.read(target)
             if let doc = shared.document {
                 RegionFlash.show(target.region, seconds: 0.5)
@@ -300,11 +317,12 @@ final class AppModel: ObservableObject {
     }
 
     /// A text capture: the app's text saved and copied, with no scrolling and no pictures.
-    private func deliverText(_ doc: ExportDocument, target: CaptureTarget, baseName: String) async {
+    private func deliverText(_ doc: ExportDocument, target: CaptureTarget, baseName: String,
+                             modeLine: String = "Text capture: read from the app, no scrolling.") async {
         let outcome = await Delivery.deliverText(doc, settings: settings, baseName: baseName)
         if settings.shutterSound { NSSound(named: "Pop")?.play() }
         let lines = PlainTextDocument.lineCount(doc)
-        var detail = ["Text capture: read from the app, no scrolling."]
+        var detail = [modeLine]
         if let line = Delivery.exportsLine(outcome) { detail.append(line) }
         detail += outcome.notes
         if let e = outcome.error { detail.insert(e, at: 0) }

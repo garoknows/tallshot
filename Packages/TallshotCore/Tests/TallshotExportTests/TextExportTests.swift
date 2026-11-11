@@ -64,3 +64,29 @@ struct TextExportTests {
         #expect(built.clipboardText?.contains("- Passport") ?? false)
     }
 }
+
+@Suite("Chat text capture: the files")
+struct ChatExportTests {
+    let doc = ExportDocument(blocks: [.speaker("You"), .paragraph([Inline("Plan a trip")]),
+                                      .speaker("ChatGPT"), .heading(level: 2, [Inline("Day one")]), .paragraph([Inline("Start early.")])],
+                             source: .accessibility)
+    let plan = CaptureExport.Plan(png: true, pdf: true, docx: true, md: true, copyImage: false, copyText: true,
+                                  pageSize: .letter, wordImage: false, baseName: "ChatGPT - 2026-11-10 at 10.00 - Tallshot")
+
+    @Test func everyFileHasTheSpeakers() throws {
+        let built = CaptureExport.buildText(doc, plan: plan.forText)
+        #expect(built.error == nil)
+        let files = Dictionary(uniqueKeysWithValues: built.files.map { ($0.ext, $0.data) })
+        let mdData = try #require(files["md"])
+        let md = String(decoding: mdData, as: UTF8.self)
+        #expect(md.contains("**You:**\n\nPlan a trip\n\n**ChatGPT:**\n\n## Day one"))
+        let pdfData = try #require(files["pdf"])
+        let pdf = try #require(PDFDocument(data: pdfData))
+        let text = pdf.string ?? ""
+        #expect(text.contains("You:") && text.contains("ChatGPT:") && text.contains("Start early."))
+        let docx = try #require(files["docx"])
+        let xml = docxXML(docx)
+        #expect(xml.contains("<w:b/></w:rPr><w:t xml:space=\"preserve\">You:</w:t>"))
+        #expect(xml.contains("ChatGPT:</w:t>"))
+    }
+}

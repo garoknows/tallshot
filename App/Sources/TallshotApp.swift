@@ -60,7 +60,11 @@ struct MenuContent: View {
         }
         Button("Settings…") { WindowRouter.shared.showSettings() }
             .keyboardShortcut(",", modifiers: .command)
-        Button("Run Self-Test") { SelfTest.shared.run() }
+        Menu("Troubleshooting") {
+            Button("Run Self-Test") { SelfTest.shared.run() }
+            // The app that was in front before this menu opened, not the one under the pointer.
+            Button("Check This App…") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { model.checkFrontApp() } }
+        }
         // Opens the page in the browser. Tallshot itself makes no network connection.
         Button("Release Notes…") { if let url = URL(string: AppVersion.releaseNotesAddress) { NSWorkspace.shared.open(url) } }
         Divider()

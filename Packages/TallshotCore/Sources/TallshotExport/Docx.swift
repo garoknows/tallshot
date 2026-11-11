@@ -55,6 +55,8 @@ public enum Docx {
             case .code(let text):
                 let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { run(String($0)) }
                 body += paragraph(style: "Code", runs: lines.joined(separator: "<w:r><w:br/></w:r>"))
+            case .speaker(let name):
+                body += paragraph(style: nil, runs: "<w:r><w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">\(escape(name)):</w:t></w:r>")
             }
         }
         let document = """
