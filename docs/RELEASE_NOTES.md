@@ -2,6 +2,12 @@ Tallshot turns any scrolling window into one tall screenshot with a single hotke
 
 Signed with a Developer ID and notarized by Apple, so it opens with no warning.
 
+**Fixed in 1.1.4**
+
+- **Run Self-Test no longer crashes.** The test page could crash Tallshot while it was being scrolled, when macOS asked it to draw an area just outside the page.
+- **A self-test that stops early leaves a diagnostic report**, as a capture does, when Settings → Capture → "Keep a diagnostic report when a capture stops early" is on.
+- **Text that may be missing is now flagged.** A scrolling screenshot that also saves its text (Markdown, Word or PDF, or copying as text) reads the app's text at each step, within a time limit so a slow app can't hold up the capture. Before, a step that ran out of time could leave text out with no sign. Now Tallshot takes one longer reading at the end, and if text may still be missing, the pop-up says so and so does the first line of the Markdown file. The image is always complete.
+
 **New in 1.1.3**
 
 - **The ChatGPT app: the whole conversation as text.** Point at a chat in the ChatGPT app and press the hotkey: Tallshot copies every message, scrolled-away ones included, as Markdown with **You** and **ChatGPT** before each turn, keeping headings, lists, links, tables and code blocks (with their language), with no scrolling. The app's own interface text ("Skip to content", "can make mistakes" notices, navigation) is left out. The Claude app keeps only the messages near the screen, so it still gets a scrolling screenshot. **Capture as Image** always takes the screenshot.
@@ -16,7 +22,7 @@ Signed with a Developer ID and notarized by Apple, so it opens with no warning.
 - **The version shows only at the bottom of Settings.** The menu starts with Capture Now; the version line is gone from its top.
 - **The three hotkey rows in Settings behave alike.** Each has Clear, the main Capture hotkey also has Reset to Default, and keys another row already uses aren't saved.
 
-**Known issues in 1.1.3**
+**Known issues in 1.1.3 and 1.1.4**
 
 - **Markdown from the Claude app needs tidying.** When a scrolling screenshot of the Claude app also saves text (Markdown, Word or PDF), that text can include the sidebar's labels, a "You said:" or "Claude responded:" label before a message with its first sentence repeated, and the notice at the bottom of the window. Short pieces of code inside a sentence can come out as separate code blocks. The screenshot itself is not affected. A fix is planned for 1.1.4.
 
