@@ -8,6 +8,22 @@ public enum TestPage {
     public static let cellWidth = 4
     public static var barcodeWidth: Int { Barcode.cellCount * cellWidth }
 
+    /// The self-test page's rows to draw for an area AppKit asks for (y grows down). Empty when
+    /// the area lies wholly outside the page, as it can in the scroll view's insets or while the
+    /// page is pulled past an edge.
+    public static func rowsToDraw(minY: Double, maxY: Double, rows: Int) -> Range<Int> {
+        guard minY.isFinite, maxY.isFinite else { return 0..<0 }
+        let first = max(0, Int(minY.rounded(.down))), last = min(rows, Int(maxY.rounded(.up)))
+        return first < last ? first..<last : 0..<0
+    }
+
+    /// The 22-row text lines whose labels touch `drawn` (one line of margin each side, as the
+    /// labels overhang their line). Empty when nothing is drawn.
+    public static func labelLines(for drawn: Range<Int>) -> Range<Int> {
+        guard !drawn.isEmpty else { return 0..<0 }
+        return max(0, drawn.lowerBound / 22 - 1)..<((drawn.upperBound - 1) / 22 + 2)
+    }
+
     public static func rgba(_ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8 = 255) -> UInt32 {
         UInt32(r) | UInt32(g) << 8 | UInt32(b) << 16 | UInt32(a) << 24
     }

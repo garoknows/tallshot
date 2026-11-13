@@ -287,6 +287,8 @@ final class AppModel: ObservableObject {
         try await Task.sleep(for: .milliseconds(560))   // the flash, then let it fade before the first picture
         if driver.isCancelled { throw CancellationError() }
         let result = try await CaptureSession(driver: driver, options: options).run()
+        // One longer reading where the capture ended, so a slow app's last screen isn't lost.
+        driver.collector?.finalSnapshot()
         return Run(result: result, capturer: capturer, text: driver.collector?.document)
     }
 
@@ -341,6 +343,8 @@ final class AppModel: ObservableObject {
         var extra: [String] = []
         if let line = Delivery.exportsLine(outcome) { extra.append(line) }
         if let src = outcome.textSource, settings.needsText { extra.append(src.note) }
+        // The app's text was cut short somewhere: say so (the Markdown file's first line does too).
+        if outcome.textSource == .accessibility, settings.needsText, let missing = text?.missingNote { extra.append(missing) }
         extra += outcome.notes
         // Which mode ran comes first.
         detail = ([mode] + [detail].compactMap { $0 } + extra).joined(separator: "\n")

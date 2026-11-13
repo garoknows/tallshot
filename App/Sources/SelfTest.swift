@@ -17,16 +17,19 @@ final class SelfTestDocument: NSView {
     override func draw(_ dirty: NSRect) {
         NSColor.white.setFill()
         dirty.fill()
-        let first = max(0, Int(dirty.minY)), last = min(rows, Int(dirty.maxY.rounded(.up)))
+        // AppKit can ask for an area wholly outside the page (the scroll view's insets, or the
+        // page pulled past an edge): then there is nothing more to draw. 1.1.3 crashed there.
+        let drawn = TestPage.rowsToDraw(minY: dirty.minY, maxY: dirty.maxY, rows: rows)
+        guard !drawn.isEmpty else { return }
         NSColor.black.setFill()
-        for y in first..<last {
+        for y in drawn {
             for (c, dark) in Barcode.cells(for: y).enumerated() where dark {
                 NSRect(x: CGFloat(TestPage.barcodeX + c * TestPage.cellWidth), y: CGFloat(y), width: CGFloat(TestPage.cellWidth), height: 1).fill()
             }
         }
         let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor(white: 0.22, alpha: 1)]
         let x = CGFloat(TestPage.barcodeX + TestPage.barcodeWidth + 12)
-        for line in max(0, first / 22 - 1)...(last / 22 + 1) {
+        for line in TestPage.labelLines(for: drawn) {
             ("Row \(line + 1) of \(rows / 22): every row must appear once, in order." as NSString)
                 .draw(at: NSPoint(x: x, y: CGFloat(line * 22 + 3)), withAttributes: attrs)
         }
@@ -152,12 +155,15 @@ final class SelfTest {
         }
         let start = Date()
         do {
-            var options = Settings.shared.captureOptions(fromTop: false)
-            options.keepDiagnostics = false
+            // Same options as a capture, including the diagnostic report's (1.1.4).
+            let options = Settings.shared.captureOptions(fromTop: false)
             let run = try await AppModel.run(target: target, options: options)
             let (result, capturer) = (run.result, run.capturer)
             let seconds = Date().timeIntervalSince(start)
             state.phase = verdict(result, scale: capturer.scale, target: target, seconds: seconds)
+            if case .failed(let m) = state.phase, let note = saveReport(result, capturer: capturer, target: target) {
+                state.phase = .failed("\(m) \(note)")
+            }
             if viaHotkey {
                 // The hotkey path also shows the pop-up, as a real capture would (nothing is saved).
                 switch state.phase {
@@ -170,6 +176,17 @@ final class SelfTest {
             state.phase = .failed("Capture failed: \(error.localizedDescription)")
         }
         if !viaHotkey { WindowRouter.present(w, move: false) }
+    }
+
+    /// A self-test that stopped early leaves a diagnostic report, as a capture does, when that
+    /// setting is on. Returns what to add to the verdict (nil: no report).
+    private func saveReport(_ result: CaptureResult, capturer: WindowCapturer, target: CaptureTarget) -> String? {
+        let settings = Settings.shared
+        guard DiagnosticsWriter.shouldWrite(settingOn: settings.keepDiagnostics, result: result) else { return nil }
+        let folder = settings.diagnosticsFolder ?? settings.folderURL
+        let saved = DiagnosticsWriter.write(result, target: target, colorSpace: capturer.colorSpace, folder: folder,
+                                            baseName: "Self-Test - " + CaptureName.plain(date: Date()))
+        return saved != nil ? "Diagnostic report saved in \(folder.lastPathComponent)." : "Couldn't save the diagnostic report in \(folder.lastPathComponent)."
     }
 
     func verdict(_ r: CaptureResult, scale: CGFloat, target: CaptureTarget, seconds: Double) -> SelfTestState.Phase {

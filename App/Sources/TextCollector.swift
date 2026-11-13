@@ -13,8 +13,12 @@ final class TextCollector {
     /// The app's bundle ID: a terminal's or code editor's text is kept as one exact code block.
     let bundleID: String?
     private(set) var merger = SnapshotMerger()
+    /// Which readings hit their limit, so a cut-short export says so (1.1.4).
+    private(set) var log = TextReadingLog()
     private var visited = 0
+    private var maxElements = 4_000
     private var deadline = 0.0
+    private var hitLimit = false
 
     /// Roles that are controls, not content: their text is left out.
     static let skip: Set<String> = ["AXButton", "AXTextField", "AXToolbar", "AXMenu", "AXMenuBar", "AXMenuItem", "AXMenuButton",
@@ -29,18 +33,33 @@ final class TextCollector {
         AXUIElementSetMessagingTimeout(root, 0.5)
     }
 
-    var document: ExportDocument { ExportDocument(blocks: merger.blocks, source: .accessibility) }
+    var document: ExportDocument { ExportDocument(blocks: merger.blocks, source: .accessibility, missingNote: log.note) }
 
-    /// Takes one snapshot of what's on screen now. Bounded to about 0.3 s and 4,000 elements.
+    /// Takes one snapshot of what's on screen now, at a scroll step. Bounded to about 0.3 s and
+    /// 4,000 elements, so a slow app can't hold up the capture; a reading that hits the limit is
+    /// recorded.
     func snapshot() {
+        read(seconds: 0.3, elements: 4_000)
+        log.reading(cutShort: hitLimit)
+    }
+
+    /// One longer reading once the capture has finished, where the last step's reading was taken.
+    func finalSnapshot() {
+        read(seconds: 2.0, elements: 40_000)
+        log.finalReading(cutShort: hitLimit)
+    }
+
+    private func read(seconds: Double, elements: Int) {
         visited = 0
-        deadline = ProcessInfo.processInfo.systemUptime + 0.3
+        hitLimit = false
+        maxElements = elements
+        deadline = ProcessInfo.processInfo.systemUptime + seconds
         var blocks: [Block] = []
         visit(root, listDepth: -1, into: &blocks)
         merger.add(blocks)
     }
 
-    private var outOfTime: Bool { visited > 4_000 || ProcessInfo.processInfo.systemUptime > deadline }
+    private var outOfTime: Bool { visited > maxElements || ProcessInfo.processInfo.systemUptime > deadline }
 
     private func onScreen(_ el: AXUIElement) -> Bool {
         guard let f = TargetFinder.frame(el) else { return true }
@@ -54,7 +73,7 @@ final class TextCollector {
     private func role(_ el: AXUIElement) -> String { TargetFinder.string(el, kAXRoleAttribute) ?? "" }
 
     private func visit(_ el: AXUIElement, listDepth: Int, into out: inout [Block]) {
-        guard !outOfTime else { return }
+        guard !outOfTime else { hitLimit = true; return }
         visited += 1
         let r = role(el)
         if Self.skip.contains(r) { return }
