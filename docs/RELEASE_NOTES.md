@@ -16,6 +16,10 @@ Signed with a Developer ID and notarized by Apple, so it opens with no warning.
 - **The version shows only at the bottom of Settings.** The menu starts with Capture Now; the version line is gone from its top.
 - **The three hotkey rows in Settings behave alike.** Each has Clear, the main Capture hotkey also has Reset to Default, and keys another row already uses aren't saved.
 
+**Known issues in 1.1.3**
+
+- **Markdown from the Claude app needs tidying.** When a scrolling screenshot of the Claude app also saves text (Markdown, Word or PDF), that text can include the sidebar's labels, a "You said:" or "Claude responded:" label before a message with its first sentence repeated, and the notice at the bottom of the window. Short pieces of code inside a sentence can come out as separate code blocks. The screenshot itself is not affected. A fix is planned for 1.1.4.
+
 **Fixed in 1.1.2**
 
 - **Scrolling captures and the self-test work again.** 1.1.0 and 1.1.1 parked the pointer with a real "mouse moved" event before the first picture, and the page under it reacted while the pictures were compared, so captures could stop with "the page jumped or changed". The pointer now moves silently during a capture, and gets its real mouse move only after the last picture, so it still never stays a crosshair.
