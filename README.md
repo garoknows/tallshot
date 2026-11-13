@@ -43,6 +43,8 @@ open "tallshot://capture?as=image"
 2. Open it and drag **Tallshot** to Applications.
 3. Open Tallshot. It lives in the menu bar (no Dock icon). See [docs/INSTALL.md](docs/INSTALL.md) if macOS says it can't check the app.
 
+Or with [Homebrew](https://brew.sh): `brew install --cask garoknows/tap/tallshot`
+
 Or build it yourself (needs Xcode): `git clone https://github.com/garoknows/tallshot && cd tallshot && scripts/install.sh`
 
 ## Permissions

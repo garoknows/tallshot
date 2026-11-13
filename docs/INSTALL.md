@@ -17,6 +17,14 @@ Releases from 1.0 on are signed with a Developer ID and notarized by Apple, so t
 
 You only do this once. Signed and notarized releases open with no warning.
 
+## With Homebrew
+
+```
+brew install --cask garoknows/tap/tallshot
+```
+
+This installs the same signed and notarized release into Applications. `brew upgrade --cask tallshot` updates it to a newer release.
+
 ## The two permissions
 
 On first launch, Tallshot shows a setup window with pictures of exactly where to click.
@@ -62,4 +70,4 @@ It installs to `~/Applications`, and replaces a running Tallshot only after the 
 
 ## Uninstalling
 
-Quit Tallshot from its menu, then drag it from Applications to the Trash. To remove its settings too: `defaults delete io.github.garoknows.tallshot`. You can also remove it from the Screen Recording and Accessibility lists in System Settings.
+Quit Tallshot from its menu, then drag it from Applications to the Trash. To remove its settings too: `defaults delete io.github.garoknows.tallshot`. If you installed it with Homebrew, `brew uninstall --cask tallshot` removes the app, and `brew uninstall --zap --cask tallshot` removes its settings too. You can also remove it from the Screen Recording and Accessibility lists in System Settings.
