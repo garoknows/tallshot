@@ -157,6 +157,11 @@ for layout in plain separate; do
   rm -f "$W/killed" "$W/opened"
   FAKE_OUTPUT="$GOOD" try_install "$H" "$W/apps" && [ -e "$W/apps/Tallshot.app/new-copy" ] \
     && ok "  ...and its signed build installs in the signed-only folder" || { bad "  the signed build from new-worktree.sh wasn't installed"; cat "$W/install.log"; }
+  # Without TALLSHOT_WORKTREES, worktrees go in ~/Developer/worktrees: never in Caches, which cleanups delete.
+  HOME="$W/home-$layout" "$M/scripts/new-worktree.sh" helper2 HEAD >/dev/null 2>&1
+  [ -f "$W/home-$layout/Developer/worktrees/helper2/Config/Signing.xcconfig" ] && [ ! -e "$W/home-$layout/Library/Caches" ] \
+    && ok "$layout: by default new-worktree.sh uses ~/Developer/worktrees, not Caches" \
+    || bad "$layout: new-worktree.sh's default isn't ~/Developer/worktrees: $(cd "$W/home-$layout" 2>/dev/null && find . -maxdepth 4 -type d | tr '\n' ' ')"
 done
 # The main checkout itself without a signing config (a fresh clone) still installs ad hoc anywhere.
 rm -f "$G/plain-main/Config/Signing.xcconfig" "$W/killed"
