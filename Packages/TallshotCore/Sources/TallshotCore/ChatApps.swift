@@ -20,7 +20,7 @@ public enum ChatApps {
         public var text: Bool
     }
 
-    /// Checked on Garo's Mac on 2026-11-10 with the accessibility probe: the ChatGPT app keeps the
+    /// Checked on 2026-11-10 with the accessibility probe: the ChatGPT app keeps the
     /// whole conversation (its first message was the chat's real first), the Claude app keeps only
     /// about one screen around what's visible. A check of the app replaces these.
     public static let builtIn: [String: Known] = [

@@ -383,9 +383,9 @@ struct WindowOpeningTests {
     }
 }
 
-/// One test per finding of Garo's 1.1.3 check (2026-11-10), with the structure from his reports
+/// One test per finding of the 1.1.3 check (2026-11-10), with the structure from its reports
 /// and from the ChatGPT app's own page code.
-@Suite("1.1.3 re-check: what Garo's ChatGPT and Claude captures showed")
+@Suite("1.1.3 re-check: what the ChatGPT and Claude captures showed")
 struct RecheckTests {
     private func markdown(_ t: Tree, _ area: Int, app: String = "ChatGPT") -> (ChatReading, String) {
         let r = ChatTranscript.read(tree: t.tree, area: area)
