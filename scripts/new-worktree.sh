@@ -4,13 +4,13 @@
 # and macOS treats the installed app as a different one (its permissions stop matching).
 #   scripts/new-worktree.sh <branch> [start-point]
 # An existing branch is checked out; a new one starts at start-point (default origin/main).
-# The worktree goes in ~/Developer/worktrees/<branch, with / as -> (TALLSHOT_WORKTREES changes
-# the parent folder). Not in ~/Library/Caches: cache cleanups delete whatever is there.
+# The worktree goes in ~/Developer/worktrees/tallshot/<branch, with / as -> (TALLSHOT_WORKTREES
+# changes that folder). Not in ~/Library/Caches: cache cleanups delete whatever is there.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BRANCH="${1:?usage: scripts/new-worktree.sh <branch> [start-point]}"
 START="${2:-origin/main}"
-DIR="${TALLSHOT_WORKTREES:-$HOME/Developer/worktrees}/${BRANCH//\//-}"
+DIR="${TALLSHOT_WORKTREES:-$HOME/Developer/worktrees/tallshot}/${BRANCH//\//-}"
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
   git worktree add "$DIR" "$BRANCH"
 else
