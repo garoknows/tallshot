@@ -48,7 +48,12 @@ public enum TextSource: String, Sendable {
 public struct ExportDocument: Equatable, Sendable {
     public var blocks: [Block]
     public var source: TextSource
-    public init(blocks: [Block], source: TextSource) { self.blocks = blocks; self.source = source }
+    /// Set when some text may be missing (a reading of the app hit its limit): the warning that
+    /// opens the Markdown file.
+    public var missingNote: String?
+    public init(blocks: [Block], source: TextSource, missingNote: String? = nil) {
+        self.blocks = blocks; self.source = source; self.missingNote = missingNote
+    }
 
     /// True when there's enough text to be worth exporting.
     public var hasText: Bool { blocks.contains { !$0.plainText.trimmingWhitespace.isEmpty } }
@@ -60,6 +65,7 @@ public enum Markdown {
     /// The Markdown for a document. `imageFile` (the PNG's file name) adds the image at the top.
     public static func render(_ doc: ExportDocument, imageFile: String? = nil) -> String {
         var out: [String] = []
+        if let note = doc.missingNote { out.append("**\(note)**"); out.append("") }
         if let imageFile { out.append("![Tallshot capture](<\(imageFile)>)"); out.append("") }
         out.append("_\(doc.source.note)_")
         var previousWasList = false
