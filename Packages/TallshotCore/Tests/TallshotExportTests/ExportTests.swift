@@ -30,7 +30,9 @@ func renderPage(_ blocks: [Block], width: Int = 1100) -> (CGImage, PixelImage) {
         case .heading(let l, let s): items.append((s.map(\.text).joined(), .boldSystemFont(ofSize: l == 1 ? 40 : 30), 40, false))
         case .paragraph(let s): items.append((s.map(\.text).joined(), .systemFont(ofSize: 20), 40, false))
         case .listItem(let l, let o, let s): items.append(((o ? "1. " : (l == 0 ? "• " : "◦ ")) + s.map(\.text).joined(), .systemFont(ofSize: 20), 60 + CGFloat(l) * 44, false))
-        case .code(let c): for line in c.split(separator: "\n") { items.append((String(line), .monospacedSystemFont(ofSize: 19, weight: .regular), 70, true)) }
+        case .table(let rows): for r in rows { items.append((r.joined(separator: " | "), .systemFont(ofSize: 20), 40, false)) }
+        case .code(let c, _): for line in c.split(separator: "\n") { items.append((String(line), .monospacedSystemFont(ofSize: 19, weight: .regular), 70, true)) }
+        case .speaker(let name): items.append((name + ":", .boldSystemFont(ofSize: 20), 40, false))
         }
     }
     let height = 60 + items.count * 62

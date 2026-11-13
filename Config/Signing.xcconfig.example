@@ -1,5 +1,8 @@
 // Copy to Config/Signing.xcconfig (gitignored) to build with your Apple Developer team.
 // Nothing in the code needs to change. Never commit the real file.
+// A git worktree doesn't get it (it's gitignored): make worktrees with scripts/new-worktree.sh,
+// which copies it in. scripts/install.sh refuses to put an ad hoc build in /Applications when
+// the main checkout has this file.
 
 CODE_SIGN_STYLE = Manual
 CODE_SIGN_IDENTITY = Developer ID Application

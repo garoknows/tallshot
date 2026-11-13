@@ -14,13 +14,20 @@ public enum Block: Equatable, Hashable, Sendable {
     case paragraph([Inline])
     /// `level` 0 is the outermost list.
     case listItem(level: Int, ordered: Bool, [Inline])
-    case code(String)
+    /// A code block, with its language when known ("python"), for the Markdown fence.
+    case code(String, language: String? = nil)
+    /// Who says what follows, in a chat ("You", "ChatGPT").
+    case speaker(String)
+    /// A table: the first row is the header.
+    case table([[String]])
 
     /// The plain words, for comparing and searching.
     public var plainText: String {
         switch self {
         case .heading(_, let s), .paragraph(let s), .listItem(_, _, let s): s.map(\.text).joined()
-        case .code(let c): c
+        case .code(let c, _): c
+        case .speaker(let name): name
+        case .table(let rows): rows.map { $0.joined(separator: " | ") }.joined(separator: "\n")
         }
     }
 }
@@ -68,12 +75,25 @@ public enum Markdown {
                 out.append(inline(spans))
             case .listItem(let level, let ordered, let spans):
                 out.append(String(repeating: "  ", count: max(0, level)) + (ordered ? "1. " : "- ") + inline(spans))
-            case .code(let text):
+            case .code(let text, let language):
                 // A fence longer than any run of backticks in the code, so the code can't close it.
                 let longest = text.split(separator: "\n", omittingEmptySubsequences: false)
                     .map { line in line.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0 }.max() ?? 0
                 let fence = String(repeating: "`", count: max(3, longest + 1))
-                out.append(fence); out.append(text); out.append(fence)
+                let info = language.map { String($0.lowercased().filter { $0.isLetter || $0.isNumber || "+#-_.".contains($0) }) } ?? ""
+                out.append(fence + info); out.append(text); out.append(fence)
+            case .speaker(let name):
+                out.append("**\(escape(name)):**")
+            case .table(let rows):
+                let width = rows.map(\.count).max() ?? 0
+                guard width > 0 else { break }
+                func line(_ cells: [String]) -> String {
+                    let padded = cells + Array(repeating: "", count: width - cells.count)
+                    return "| " + padded.map { escape($0, atLineStart: false).replacingAll("|", with: "\\|") }.joined(separator: " | ") + " |"
+                }
+                out.append(line(rows[0]))
+                out.append("|" + String(repeating: " --- |", count: width))
+                rows.dropFirst().forEach { out.append(line($0)) }
             }
             previousWasList = isList
         }
@@ -81,19 +101,56 @@ public enum Markdown {
     }
 
     static func inline(_ spans: [Inline]) -> String {
-        spans.map { s in
+        var out = ""
+        for s in spans {
             // A line break inside a paragraph stays a line break (Markdown's two-space hard break),
-            // each line escaped on its own.
-            let t = s.text.split(separator: "\n", omittingEmptySubsequences: false).map { escape(String($0)) }.joined(separator: "  \n")
-            guard let link = s.link.flatMap(safeLink) else { return t }
-            return "[\(t)](\(link))"
-        }.joined()
+            // each line escaped on its own; line-start escapes only where a line really starts.
+            let lines = s.text.split(separator: "\n", omittingEmptySubsequences: false)
+            let t = lines.enumerated().map { i, l in escape(String(l), atLineStart: i > 0 || out.isEmpty) }.joined(separator: "  \n")
+            if let link = s.link.flatMap(safeLink) { out += "[\(t)](\(link))" } else { out += t }
+        }
+        return out
     }
 
-    /// Escapes the few characters that would change meaning at the start of a line or in a link.
-    static func escape(_ s: String) -> String {
-        var t = s.replacingAll("\n", with: " ")
-        for c in ["\\", "[", "]", "*", "_", "`", "<"] { t = t.replacingAll(c, with: "\\" + c) }
+    /// Escapes only what Markdown would otherwise read as formatting, and never drops a
+    /// character: `*`, backticks and brackets; `_` except inside a word (`utm_source` stays as it
+    /// is); `<` before a tag; `&` before a character reference; a backslash before punctuation.
+    /// Web addresses in the text are left exactly as they are. `atLineStart` also escapes what
+    /// would start a heading, quote, list or table.
+    static func escape(_ s: String, atLineStart: Bool = true) -> String {
+        let chars = Array(s.replacingAll("\n", with: " "))
+        func isWordChar(_ c: Character?) -> Bool { c.map { $0.isLetter || $0.isNumber } ?? false }
+        func startsAddress(_ i: Int) -> Bool {
+            guard i == 0 || chars[i - 1].isWhitespace || "(<\"'".contains(chars[i - 1]) else { return false }
+            let rest = String(chars[i..<min(chars.count, i + 8)]).lowercased()
+            return ["http://", "https://", "www.", "mailto:"].contains { rest.hasPrefix($0) }
+        }
+        func isReference(_ i: Int) -> Bool {   // "&amp;", "&#38;", "&#x26;"
+            var j = i + 1, n = 0
+            if j < chars.count, chars[j] == "#" { j += 1 }
+            while j < chars.count, chars[j].isASCII, chars[j].isLetter || chars[j].isNumber, n < 32 { j += 1; n += 1 }
+            return n > 0 && j < chars.count && chars[j] == ";"
+        }
+        var t = "", i = 0
+        while i < chars.count {
+            if startsAddress(i) {
+                var j = i
+                while j < chars.count, !chars[j].isWhitespace { j += 1 }
+                t += String(chars[i..<j]); i = j
+                continue
+            }
+            let c = chars[i], prev: Character? = i > 0 ? chars[i - 1] : nil, next: Character? = i + 1 < chars.count ? chars[i + 1] : nil
+            switch c {
+            case "*", "`", "[", "]": t += "\\" + String(c)
+            case "_": t += isWordChar(prev) && isWordChar(next) ? "_" : "\\_"
+            case "\\": t += next.map { $0.isASCII && ($0.isPunctuation || $0.isSymbol) } ?? true ? "\\\\" : "\\"
+            case "<": t += next.map { $0.isLetter || "/!?".contains($0) } ?? false ? "\\<" : "<"
+            case "&": t += isReference(i) ? "\\&" : "&"
+            default: t.append(c)
+            }
+            i += 1
+        }
+        guard atLineStart else { return t }
         if let f = t.first, "#>+-|".contains(f) { t = "\\" + t }
         // "2024. Results" would start a numbered list.
         let digits = t.prefix(while: { $0.isASCII && $0.isNumber })

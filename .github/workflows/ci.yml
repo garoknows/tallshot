@@ -72,7 +72,7 @@ jobs:
       - name: Pointer and text-capture rules
         run: scripts/check-capture-rules.sh
 
-      - name: The menu shows the build's version
+      - name: Settings shows the build's version
         run: scripts/test-version.sh build.nosync/dd/Build/Products/Release/Tallshot.app
 
       - name: Secret scan

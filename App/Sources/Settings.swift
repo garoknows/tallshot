@@ -91,6 +91,7 @@ final class Settings: ObservableObject {
         static let copyAs = "copyAs", pageSize = "pdfPageSize", wordImage = "wordIncludesImage"
         static let descriptiveNames = "descriptiveFileNames"
         static let imageHotkey = "imageHotkey", textCapture = "textCapture"
+        static let checkedApps = "checkedChatApps"
     }
 
     @Published var captureHotkey: Hotkey? { didSet { store(captureHotkey, Keys.captureHotkey) } }
@@ -125,6 +126,11 @@ final class Settings: ObservableObject {
     @Published var wordIncludesImage: Bool { didSet { d.set(wordIncludesImage, forKey: Keys.wordImage) } }
     /// Name files after what's in them (default), or only the date and time.
     @Published var descriptiveFileNames: Bool { didSet { d.set(descriptiveFileNames, forKey: Keys.descriptiveNames) } }
+    /// Apps checked with Check This App: bundle ID → name, the answer the user confirmed, and
+    /// the date. No chat text. Empty means only the built-in answers (`ChatApps.builtIn`) apply.
+    @Published private(set) var checkedApps: [String: CheckedApp] {
+        didSet { d.set(checkedApps.isEmpty ? nil : try? JSONEncoder().encode(checkedApps), forKey: Keys.checkedApps) }
+    }
 
     /// Whether any export needs the words of the capture.
     var needsText: Bool { saveDOCX || saveMarkdown || (copyToClipboard && copyAs == .text) }
@@ -159,7 +165,17 @@ final class Settings: ObservableObject {
         pdfPageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .letter
         wordIncludesImage = d.bool(forKey: Keys.wordImage)
         descriptiveFileNames = d.bool(forKey: Keys.descriptiveNames)
+        checkedApps = d.data(forKey: Keys.checkedApps).flatMap { try? JSONDecoder().decode([String: CheckedApp].self, from: $0) } ?? [:]
     }
+
+    /// Check This App's answer for one app, confirmed by the user.
+    func rememberChatApp(_ bundleID: String, name: String, wholeConversation: Bool) {
+        let day = Date().formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())
+        checkedApps[bundleID] = CheckedApp(name: name, keepsWholeConversation: wholeConversation, checked: day)
+    }
+
+    /// Settings → Forget Checked Apps: back to the built-in answers.
+    func forgetCheckedApps() { checkedApps = [:] }
 
     func hotkey(slot: UInt32) -> Hotkey? {
         switch slot { case 1: captureHotkey; case 2: fromTopHotkey; default: imageHotkey }

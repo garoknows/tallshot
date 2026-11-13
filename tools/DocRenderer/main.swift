@@ -94,37 +94,48 @@ struct MenuPicture: View {
             }
             .padding(.horizontal, 10).frame(height: 24)
             .background(Color.white.opacity(0.85))
-            VStack(alignment: .leading, spacing: 2) {
-                row("Tallshot 1.1.2", nil).foregroundStyle(.secondary)
-                Divider().padding(.vertical, 3)
-                row("Capture Now", "⌃⌥⇧⌘T")
-                row("Capture from Top", nil)
-                row("Capture as Image", nil)
-                Divider().padding(.vertical, 3)
-                row("Settings…", "⌘,")
-                row("Run Self-Test", nil)
-                row("Release Notes…", nil)
-                Divider().padding(.vertical, 3)
-                row("Quit Tallshot", "⌘Q")
+            HStack(alignment: .top, spacing: 2) {
+                VStack(alignment: .leading, spacing: 2) {
+                    row("Capture Now", "⌃⌥⇧⌘T")
+                    row("Capture from Top", nil)
+                    row("Capture as Image", nil)
+                    Divider().padding(.vertical, 3)
+                    row("Settings…", "⌘,")
+                    row("Troubleshooting", "›", highlighted: true)
+                    row("Release Notes…", nil)
+                    Divider().padding(.vertical, 3)
+                    row("Quit Tallshot", "⌘Q")
+                }
+                .padding(6)
+                .frame(width: 240)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(white: 0.97)).shadow(radius: 6, y: 2))
+                // The Troubleshooting submenu, open beside its row.
+                VStack(alignment: .leading, spacing: 2) {
+                    row("Run Self-Test", nil)
+                    row("Check This App…", nil)
+                }
+                .padding(6)
+                .frame(width: 190)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(white: 0.97)).shadow(radius: 6, y: 2))
+                .padding(.top, 104)
             }
-            .padding(6)
-            .frame(width: 240)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(white: 0.97)).shadow(radius: 6, y: 2))
-            .padding(.leading, 112).padding(.top, 2).padding(.bottom, 12)
+            .padding(.leading, 40).padding(.top, 2).padding(.bottom, 12)
         }
-        .frame(width: 420)
+        .frame(width: 520)
         .background(LinearGradient(colors: [Color(red: 0.86, green: 0.88, blue: 0.93), Brand.paper], startPoint: .top, endPoint: .bottom))
         .environment(\.colorScheme, .light)
     }
 
-    func row(_ title: String, _ key: String?) -> some View {
+    func row(_ title: String, _ key: String?, highlighted: Bool = false) -> some View {
         HStack {
             Text(title)
             Spacer()
-            if let key { Text(key).foregroundStyle(.secondary) }
+            if let key { Text(key).foregroundStyle(highlighted ? Color.white : .secondary) }
         }
         .font(.system(size: 13))
+        .foregroundStyle(highlighted ? Color.white : .primary)
         .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 4).fill(highlighted ? Color.accentColor : .clear))
     }
 }
 

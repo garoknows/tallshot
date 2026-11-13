@@ -52,9 +52,24 @@ public enum Docx {
                 let numID = ordered ? 1 + orderedLists : 1
                 body += "<w:p><w:pPr><w:pStyle w:val=\"ListParagraph\"/><w:numPr><w:ilvl w:val=\"\(min(8, max(0, level)))\"/>"
                     + "<w:numId w:val=\"\(numID)\"/></w:numPr></w:pPr>\(runs(spans))</w:p>"
-            case .code(let text):
+            case .code(let text, _):
                 let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { run(String($0)) }
                 body += paragraph(style: "Code", runs: lines.joined(separator: "<w:r><w:br/></w:r>"))
+            case .table(let rows):
+                let width = rows.map(\.count).max() ?? 0
+                guard width > 0 else { break }
+                let border = ["top", "left", "bottom", "right", "insideH", "insideV"]
+                    .map { "<w:\($0) w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"999999\"/>" }.joined()
+                body += "<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/><w:tblBorders>\(border)</w:tblBorders></w:tblPr>"
+                for (r, row) in rows.enumerated() {
+                    body += "<w:tr>" + (row + Array(repeating: "", count: width - row.count)).map { cell in
+                        let text = r == 0 ? "<w:r><w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">\(escape(cell))</w:t></w:r>" : run(cell)
+                        return "<w:tc><w:p>\(text)</w:p></w:tc>"
+                    }.joined() + "</w:tr>"
+                }
+                body += "</w:tbl><w:p/>"
+            case .speaker(let name):
+                body += paragraph(style: nil, runs: "<w:r><w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">\(escape(name)):</w:t></w:r>")
             }
         }
         let document = """

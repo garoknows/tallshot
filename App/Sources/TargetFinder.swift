@@ -186,8 +186,12 @@ enum TargetFinder {
             if AccessibilitySwitch.chromiumBrowsers.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) { return true }
             if ["com.apple.Safari", "com.apple.SafariTechnologyPreview", "org.mozilla.firefox"].contains(id) { return true }
         }
-        if let url = app?.bundleURL?.appendingPathComponent("Contents/Frameworks/Electron Framework.framework"),
-           FileManager.default.fileExists(atPath: url.path) { return true }
+        // Electron, also under another framework name (the ChatGPT app's is "Codex Framework"):
+        // every Electron app carries its page in Resources/app.asar.
+        if let bundle = app?.bundleURL {
+            for part in ["Contents/Frameworks/Electron Framework.framework", "Contents/Resources/app.asar"]
+            where FileManager.default.fileExists(atPath: bundle.appendingPathComponent(part).path) { return true }
+        }
         return false
     }
 
@@ -234,7 +238,7 @@ enum TargetFinder {
     }
 
     /// Any app macOS knows can open web links, plus the browsers already known by name.
-    private static func isWebBrowser(bundleID: String?, app: NSRunningApplication?) -> Bool {
+    static func isWebBrowser(bundleID: String?, app: NSRunningApplication?) -> Bool {
         if let id = bundleID {
             if AccessibilitySwitch.chromiumBrowsers.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) { return true }
             if ["com.apple.Safari", "com.apple.SafariTechnologyPreview", "org.mozilla.firefox"].contains(id) { return true }

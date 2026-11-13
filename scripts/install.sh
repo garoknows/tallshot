@@ -28,6 +28,25 @@ fi
 scripts/signing-identity.sh >/dev/null || exit 1
 TEAM="$(scripts/signing-team.sh)" || exit 1
 
+# An ad hoc build must never replace a signed Tallshot in /Applications: macOS would treat it as
+# a different app and its Screen Recording and Accessibility permissions would stop matching.
+# That happens in a git worktree, which doesn't get the gitignored Config/Signing.xcconfig.
+# (TALLSHOT_SIGNED_ONLY_DEST changes the folder, for scripts/test-signing-check.sh.)
+SIGNED_ONLY="${TALLSHOT_SIGNED_ONLY_DEST:-/Applications}"
+real_dir() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "${1%/}"; }
+if [ -z "$TEAM" ] && [ "$(real_dir "$DEST")" = "$(real_dir "$SIGNED_ONLY")" ]; then
+  MAIN="$(scripts/main-checkout.sh)"
+  HERE="$(pwd -P)"
+  if [ -n "$MAIN" ] && [ "$MAIN" != "$HERE" ] && [ -f "$MAIN/Config/Signing.xcconfig" ]; then
+    fail "This copy of the code has no Config/Signing.xcconfig, so the build would be ad hoc signed.
+  Installed in $SIGNED_ONLY, it would replace your signed Tallshot, and macOS would ask for
+  Screen Recording and Accessibility again. Nothing was built or installed.
+  The main checkout has the file. Copy it here, then run this again:
+    cp \"$MAIN/Config/Signing.xcconfig\" \"$HERE/Config/\"
+  (New worktrees made with scripts/new-worktree.sh get it automatically.)"
+  fi
+fi
+
 # Keep build output out of iCloud: Desktop/Documents syncing breaks code signing.
 BUILD_DIR="${TALLSHOT_BUILD_DIR:-$HOME/Library/Caches/Tallshot-build}"
 mkdir -p "$BUILD_DIR"
